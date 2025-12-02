@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Table, Tag, Space, Button, Input, DatePicker, Select, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
+import { translations } from '../i18n/locales';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
 
-const TestRecordList = ({ onNewRecord }) => {
+const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
+  const t = translations[language];
+  
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
@@ -30,7 +33,7 @@ const TestRecordList = ({ onNewRecord }) => {
       const response = await testRecordsAPI.getAll(params);
       setRecords(response.data);
     } catch (error) {
-      message.error('載入資料失敗');
+      message.error(t.loadDataFailed);
       console.error(error);
     } finally {
       setLoading(false);
@@ -50,33 +53,33 @@ const TestRecordList = ({ onNewRecord }) => {
 
   const columns = [
     {
-      title: 'ID',
+      title: t.id,
       dataIndex: 'id',
       key: 'id',
       width: 80,
     },
     {
-      title: '序號',
+      title: t.serialNumber,
       dataIndex: 'serial_number',
       key: 'serial_number',
     },
     {
-      title: '產品名稱',
+      title: t.productName,
       dataIndex: 'product_name',
       key: 'product_name',
     },
     {
-      title: '設備ID',
+      title: t.deviceId,
       dataIndex: 'device_id',
       key: 'device_id',
     },
     {
-      title: '測試站別',
+      title: t.testStation,
       dataIndex: 'test_station',
       key: 'test_station',
     },
     {
-      title: '測試結果',
+      title: t.testResult,
       dataIndex: 'test_result',
       key: 'test_result',
       render: (result) => (
@@ -86,36 +89,36 @@ const TestRecordList = ({ onNewRecord }) => {
       ),
     },
     {
-      title: '電壓 (V)',
+      title: t.voltage,
       dataIndex: 'voltage',
       key: 'voltage',
       render: (val) => val?.toFixed(2) || '-',
     },
     {
-      title: '電流 (A)',
+      title: t.current,
       dataIndex: 'current',
       key: 'current',
       render: (val) => val?.toFixed(2) || '-',
     },
     {
-      title: '溫度 (°C)',
+      title: t.temperature,
       dataIndex: 'temperature',
       key: 'temperature',
       render: (val) => val?.toFixed(1) || '-',
     },
     {
-      title: '測試時間',
+      title: t.testTime,
       dataIndex: 'test_time',
       key: 'test_time',
       render: (time) => dayjs(time).format('YYYY-MM-DD HH:mm:ss'),
     },
     {
-      title: '雲端上傳',
+      title: t.cloudUpload,
       dataIndex: 'uploaded_to_cloud',
       key: 'uploaded_to_cloud',
       render: (uploaded) => (
         <Tag color={uploaded ? 'blue' : 'default'}>
-          {uploaded ? '已上傳' : '未上傳'}
+          {uploaded ? t.uploaded : t.notUploaded}
         </Tag>
       ),
     },
@@ -125,13 +128,13 @@ const TestRecordList = ({ onNewRecord }) => {
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
         <Input
-          placeholder="設備ID"
+          placeholder={t.deviceIdPlaceholder}
           value={filters.device_id}
           onChange={(e) => setFilters({ ...filters, device_id: e.target.value })}
           style={{ width: 200 }}
         />
         <Select
-          placeholder="測試結果"
+          placeholder={t.testResultPlaceholder}
           value={filters.test_result}
           onChange={(value) => setFilters({ ...filters, test_result: value })}
           style={{ width: 120 }}
@@ -149,13 +152,13 @@ const TestRecordList = ({ onNewRecord }) => {
           icon={<SearchOutlined />}
           onClick={fetchRecords}
         >
-          查詢
+          {t.search}
         </Button>
         <Button
           icon={<ReloadOutlined />}
           onClick={fetchRecords}
         >
-          重新整理
+          {t.refresh}
         </Button>
       </Space>
 
@@ -166,7 +169,7 @@ const TestRecordList = ({ onNewRecord }) => {
         loading={loading}
         pagination={{
           pageSize: 20,
-          showTotal: (total) => `共 ${total} 筆`,
+          showTotal: (total) => `${t.total} ${total} ${t.items}`,
         }}
       />
     </div>

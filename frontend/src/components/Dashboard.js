@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, Statistic, Row, Col, Badge } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
+import { translations } from '../i18n/locales';
 
-const Dashboard = () => {
+const Dashboard = ({ language = 'zh-TW' }) => {
+  const t = translations[language];
+  
   const [stats, setStats] = useState({
     total: 0,
     passed: 0,
@@ -50,7 +53,7 @@ const Dashboard = () => {
       <Col span={6}>
         <Card>
           <Statistic
-            title="總測試數"
+            title={t.totalTests}
             value={stats.total}
             prefix={<ClockCircleOutlined />}
           />
@@ -59,7 +62,7 @@ const Dashboard = () => {
       <Col span={6}>
         <Card>
           <Statistic
-            title="通過數"
+            title={t.passedTests}
             value={stats.passed}
             valueStyle={{ color: '#3f8600' }}
             prefix={<CheckCircleOutlined />}
@@ -69,7 +72,7 @@ const Dashboard = () => {
       <Col span={6}>
         <Card>
           <Statistic
-            title="失敗數"
+            title={t.failedTests}
             value={stats.failed}
             valueStyle={{ color: '#cf1322' }}
             prefix={<CloseCircleOutlined />}
@@ -79,7 +82,7 @@ const Dashboard = () => {
       <Col span={6}>
         <Card>
           <Statistic
-            title="良率"
+            title={t.passRate}
             value={passRate}
             suffix="%"
             valueStyle={{ color: passRate >= 90 ? '#3f8600' : '#cf1322' }}
@@ -89,7 +92,7 @@ const Dashboard = () => {
       <Col span={24} style={{ marginTop: 16 }}>
         <Card>
           <Statistic
-            title="今日測試數"
+            title={t.todayTests}
             value={stats.todayTotal}
           />
         </Card>

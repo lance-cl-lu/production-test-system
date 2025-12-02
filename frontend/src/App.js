@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Layout, Menu, Typography, Badge, Space } from 'antd';
+import React, { useState, useCallback } from 'react';
+import { Layout, Menu, Typography, Badge, Space, Dropdown } from 'antd';
 import {
   DashboardOutlined,
   UnorderedListOutlined,
@@ -8,10 +8,12 @@ import {
   RadarChartOutlined,
   BarcodeOutlined,
   CheckCircleOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
 import { useWebSocket } from './services/websocket';
+import { translations } from './i18n/locales';
 import './App.css';
 
 const { Header, Content, Sider } = Layout;
@@ -20,64 +22,80 @@ const { Title } = Typography;
 function App() {
   const [currentMenu, setCurrentMenu] = useState('dashboard');
   const [newRecordTrigger, setNewRecordTrigger] = useState(0);
+  const [language, setLanguage] = useState('zh-TW');
 
-  const { isConnected, lastMessage } = useWebSocket((message) => {
+  const handleWebSocketMessage = useCallback((message) => {
     console.log('Received WebSocket message:', message);
     if (message.type === 'test_result') {
       // 觸發列表重新載入
       setNewRecordTrigger((prev) => prev + 1);
     }
-  });
+  }, []);
+
+  const { isConnected, lastMessage } = useWebSocket(handleWebSocketMessage);
+
+  const t = translations[language];
+
+  const languageMenuItems = [
+    {
+      key: 'zh-TW',
+      label: '繁體中文',
+    },
+    {
+      key: 'en',
+      label: 'English',
+    },
+  ];
 
   const menuItems = [
     {
       key: 'dashboard',
       icon: <DashboardOutlined />,
-      label: '儀表板',
+      label: t.dashboard,
     },
     {
       key: 'gateway-iqc',
       icon: <ApiOutlined />,
-      label: 'Gateway IQC',
+      label: t.gatewayIQC,
     },
     {
       key: 'sensor-iqc',
       icon: <RadarChartOutlined />,
-      label: 'Sensor IQC',
+      label: t.sensorIQC,
     },
     {
       key: 'mac-uid',
       icon: <BarcodeOutlined />,
-      label: 'Mac-UID',
+      label: t.macUID,
     },
     {
       key: 'final-test',
       icon: <CheckCircleOutlined />,
-      label: 'Final Test',
+      label: t.finalTest,
     },
     {
       key: 'records',
       icon: <UnorderedListOutlined />,
-      label: '測試記錄',
+      label: t.testRecords,
     },
   ];
 
   const renderContent = () => {
     switch (currentMenu) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard language={language} />;
       case 'gateway-iqc':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Gateway IQC 測試</h2><p>開發中...</p></div>;
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.gatewayIQCTest}</h2><p>{t.inDevelopment}</p></div>;
       case 'sensor-iqc':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Sensor IQC 測試</h2><p>開發中...</p></div>;
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.sensorIQCTest}</h2><p>{t.inDevelopment}</p></div>;
       case 'mac-uid':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Mac-UID 測試</h2><p>開發中...</p></div>;
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.macUIDTest}</h2><p>{t.inDevelopment}</p></div>;
       case 'final-test':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Final Test</h2><p>開發中...</p></div>;
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.finalTestTitle}</h2><p>{t.inDevelopment}</p></div>;
       case 'records':
-        return <TestRecordList onNewRecord={newRecordTrigger} />;
+        return <TestRecordList onNewRecord={newRecordTrigger} language={language} />;
       default:
-        return <Dashboard />;
+        return <Dashboard language={language} />;
     }
   };
 
@@ -85,14 +103,29 @@ function App() {
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Title level={3} style={{ color: 'white', margin: 0 }}>
-          生產測試資料管理系統
+          {t.systemTitle}
         </Title>
-        <Space>
-          <Badge status={isConnected ? 'success' : 'error'} />
-          <WifiOutlined style={{ color: 'white', fontSize: 16 }} />
-          <span style={{ color: 'white' }}>
-            {isConnected ? '已連線' : '未連線'}
-          </span>
+        <Space size="large">
+          <Space>
+            <Badge status={isConnected ? 'success' : 'error'} />
+            <WifiOutlined style={{ color: 'white', fontSize: 16 }} />
+            <span style={{ color: 'white' }}>
+              {isConnected ? t.connected : t.disconnected}
+            </span>
+          </Space>
+          <Dropdown
+            menu={{
+              items: languageMenuItems,
+              onClick: ({ key }) => setLanguage(key),
+              selectedKeys: [language],
+            }}
+            trigger={['click']}
+          >
+            <Space style={{ cursor: 'pointer' }}>
+              <GlobalOutlined style={{ color: 'white', fontSize: 18 }} />
+              <span style={{ color: 'white' }}>{language === 'zh-TW' ? '繁體中文' : 'English'}</span>
+            </Space>
+          </Dropdown>
         </Space>
       </Header>
       <Layout>

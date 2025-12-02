@@ -1,0 +1,102 @@
+export const translations = {
+  'zh-TW': {
+    // Header
+    systemTitle: '生產測試資料管理系統',
+    connected: '已連線',
+    disconnected: '未連線',
+    
+    // Menu
+    dashboard: '儀表板',
+    gatewayIQC: 'Gateway IQC',
+    sensorIQC: 'Sensor IQC',
+    macUID: 'Mac-UID',
+    finalTest: 'Final Test',
+    testRecords: '測試記錄',
+    
+    // Common
+    inDevelopment: '開發中...',
+    gatewayIQCTest: 'Gateway IQC 測試',
+    sensorIQCTest: 'Sensor IQC 測試',
+    macUIDTest: 'Mac-UID 測試',
+    finalTestTitle: 'Final Test',
+    
+    // Dashboard
+    totalTests: '總測試數',
+    passedTests: '通過數',
+    failedTests: '失敗數',
+    passRate: '良率',
+    todayTests: '今日測試數',
+    
+    // Test Records
+    id: 'ID',
+    serialNumber: '序號',
+    productName: '產品名稱',
+    deviceId: '設備ID',
+    testStation: '測試站別',
+    testResult: '測試結果',
+    voltage: '電壓 (V)',
+    current: '電流 (A)',
+    temperature: '溫度 (°C)',
+    testTime: '測試時間',
+    cloudUpload: '雲端上傳',
+    uploaded: '已上傳',
+    notUploaded: '未上傳',
+    deviceIdPlaceholder: '設備ID',
+    testResultPlaceholder: '測試結果',
+    search: '查詢',
+    refresh: '重新整理',
+    total: '共',
+    items: '筆',
+    loadDataFailed: '載入資料失敗',
+  },
+  'en': {
+    // Header
+    systemTitle: 'Production Test Management System',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    
+    // Menu
+    dashboard: 'Dashboard',
+    gatewayIQC: 'Gateway IQC',
+    sensorIQC: 'Sensor IQC',
+    macUID: 'Mac-UID',
+    finalTest: 'Final Test',
+    testRecords: 'Test Records',
+    
+    // Common
+    inDevelopment: 'In Development...',
+    gatewayIQCTest: 'Gateway IQC Test',
+    sensorIQCTest: 'Sensor IQC Test',
+    macUIDTest: 'Mac-UID Test',
+    finalTestTitle: 'Final Test',
+    
+    // Dashboard
+    totalTests: 'Total Tests',
+    passedTests: 'Passed',
+    failedTests: 'Failed',
+    passRate: 'Pass Rate',
+    todayTests: 'Today\'s Tests',
+    
+    // Test Records
+    id: 'ID',
+    serialNumber: 'Serial Number',
+    productName: 'Product Name',
+    deviceId: 'Device ID',
+    testStation: 'Test Station',
+    testResult: 'Test Result',
+    voltage: 'Voltage (V)',
+    current: 'Current (A)',
+    temperature: 'Temperature (°C)',
+    testTime: 'Test Time',
+    cloudUpload: 'Cloud Upload',
+    uploaded: 'Uploaded',
+    notUploaded: 'Not Uploaded',
+    deviceIdPlaceholder: 'Device ID',
+    testResultPlaceholder: 'Test Result',
+    search: 'Search',
+    refresh: 'Refresh',
+    total: 'Total',
+    items: 'items',
+    loadDataFailed: 'Failed to load data',
+  }
+};
