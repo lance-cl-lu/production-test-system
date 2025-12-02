@@ -4,6 +4,10 @@ import {
   DashboardOutlined,
   UnorderedListOutlined,
   WifiOutlined,
+  ApiOutlined,
+  RadarChartOutlined,
+  BarcodeOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
@@ -32,6 +36,26 @@ function App() {
       label: '儀表板',
     },
     {
+      key: 'gateway-iqc',
+      icon: <ApiOutlined />,
+      label: 'Gateway IQC',
+    },
+    {
+      key: 'sensor-iqc',
+      icon: <RadarChartOutlined />,
+      label: 'Sensor IQC',
+    },
+    {
+      key: 'mac-uid',
+      icon: <BarcodeOutlined />,
+      label: 'Mac-UID',
+    },
+    {
+      key: 'final-test',
+      icon: <CheckCircleOutlined />,
+      label: 'Final Test',
+    },
+    {
       key: 'records',
       icon: <UnorderedListOutlined />,
       label: '測試記錄',
@@ -42,6 +66,14 @@ function App() {
     switch (currentMenu) {
       case 'dashboard':
         return <Dashboard />;
+      case 'gateway-iqc':
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Gateway IQC 測試</h2><p>開發中...</p></div>;
+      case 'sensor-iqc':
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Sensor IQC 測試</h2><p>開發中...</p></div>;
+      case 'mac-uid':
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Mac-UID 測試</h2><p>開發中...</p></div>;
+      case 'final-test':
+        return <div style={{ padding: 24, textAlign: 'center' }}><h2>Final Test</h2><p>開發中...</p></div>;
       case 'records':
         return <TestRecordList onNewRecord={newRecordTrigger} />;
       default:
