@@ -14,7 +14,7 @@ const Dashboard = ({ language = 'zh-TW' }) => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/api/test-records/`, { params: { limit: 1000 } });
+        const response = await axios.get(`${API_BASE}/api/test-records/`, { params: { limit: 500 } });
         const records = response.data || [];
         setStats({
           total: records.length,
