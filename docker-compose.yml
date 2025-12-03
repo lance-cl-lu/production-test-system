@@ -28,9 +28,9 @@ services:
     volumes:
       - ./backend:/app
 
-  frontend:
-    build: ./frontend
-    container_name: production_test_frontend
+  frontend-smac:
+    build: ./frontend-smac
+    container_name: production_test_frontend_smac
     restart: always
     ports:
       - "3000:3000"
@@ -40,14 +40,14 @@ services:
     depends_on:
       - backend
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - ./frontend-smac/src:/app/src
+      - ./frontend-smac/public:/app/public
     stdin_open: true
     tty: true
 
-  frontend-b:
-    build: ./frontend-b
-    container_name: production_test_frontend_b
+  frontend-nl:
+    build: ./frontend-nl
+    container_name: production_test_frontend_nl
     restart: always
     ports:
       - "3001:3001"
@@ -58,8 +58,8 @@ services:
     depends_on:
       - backend
     volumes:
-      - ./frontend-b/src:/app/src
-      - ./frontend-b/public:/app/public
+      - ./frontend-nl/src:/app/src
+      - ./frontend-nl/public:/app/public
     stdin_open: true
     tty: true
 
