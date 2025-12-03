@@ -17,7 +17,7 @@ const Dashboard = ({ language = 'zh-TW' }) => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await testRecordsAPI.getAll({ limit: 1000 });
+        const response = await testRecordsAPI.getAll({ limit: 500 });
         const records = response.data;
         
         const today = new Date();

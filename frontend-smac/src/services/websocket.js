@@ -13,29 +13,45 @@ export const useWebSocket = (onMessage) => {
       ws.current = new WebSocket(WS_URL);
 
       ws.current.onopen = () => {
-        console.log('WebSocket connected');
         setIsConnected(true);
+        // eslint-disable-next-line no-console
+        console.log('[WS] connected', { url: WS_URL, time: new Date().toISOString() });
       };
 
       ws.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
+        let message = null;
+        try {
+          message = JSON.parse(event.data);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('[WS] failed to parse message', e);
+          return;
+        }
         setLastMessage(message);
+        if (message?.type === 'pcba_event') {
+          // eslint-disable-next-line no-console
+          console.log('[WS] pcba_event received', {
+            serial: message?.data?.serial,
+            stage: message?.data?.stage,
+            status: message?.data?.status,
+            timestamp: message?.timestamp,
+          });
+        }
         if (onMessage) {
           onMessage(message);
         }
       };
 
       ws.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        // eslint-disable-next-line no-console
+        console.warn('[WS] error', error);
       };
 
       ws.current.onclose = () => {
-        console.log('WebSocket disconnected');
         setIsConnected(false);
-        
-        // Auto reconnect after 3 seconds
+        // eslint-disable-next-line no-console
+        console.log('[WS] disconnected, will retry in 3s');
         reconnectTimeout.current = setTimeout(() => {
-          console.log('Attempting to reconnect...');
           connect();
         }, 3000);
       };
