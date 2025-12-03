@@ -1,6 +1,6 @@
 export const translations = {
   'zh-TW': {
-    systemTitle: '生產測試系統（UI-NL）',
+    systemTitle: '夜燈生產測試系統',
     connected: '已連線',
     disconnected: '未連線',
     menu: {
@@ -38,7 +38,7 @@ export const translations = {
     sameAsGateway: '與「閘道器進料檢驗」相同內容，後續可抽共用元件套用。',
   },
   en: {
-    systemTitle: 'Production Test System (UI-NL)',
+    systemTitle: 'Night Light Production Test System',
     connected: 'Connected',
     disconnected: 'Disconnected',
     menu: {
