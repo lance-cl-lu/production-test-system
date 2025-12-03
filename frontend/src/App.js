@@ -15,6 +15,7 @@ import TestRecordList from './components/TestRecordList';
 import SensorIQC from './components/SensorIQC';
 import GatewayIQC from './components/GatewayIQC';
 import ProgramMacUID from './components/ProgramMacUID';
+import FinalTest from './components/FinalTest';
 import { useWebSocket } from './services/websocket';
 import { translations } from './i18n/locales';
 import './App.css';
@@ -74,7 +75,7 @@ function App() {
     {
       key: 'final-test',
       icon: <CheckCircleOutlined />,
-      label: t.finalTest,
+      label: t.finalTestMenu,
     },
     {
       key: 'records',
@@ -94,7 +95,7 @@ function App() {
       case 'mac-uid':
         return <ProgramMacUID language={language} />;
       case 'final-test':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.finalTestTitle}</h2><p>{t.inDevelopment}</p></div>;
+        return <FinalTest language={language} />;
       case 'records':
         return <TestRecordList onNewRecord={newRecordTrigger} language={language} />;
       default:
