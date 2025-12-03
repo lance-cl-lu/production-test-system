@@ -1,96 +1,121 @@
-import React, { useState } from 'react';
-import { Card, Form, Input, Select, DatePicker, Button, Space, Table, Tag } from 'antd';
-import dayjs from 'dayjs';
+import React, { useMemo, useRef, useState } from 'react';
+import { Card, Form, Input, Button, Space, Table, Tag, Typography } from 'antd';
+import { translations } from '../i18n/locales';
 
-const { RangePicker } = DatePicker;
-const { Option } = Select;
+const { Title } = Typography;
 
-// 初版：先複製「閘道器進料檢驗」的結構（可再調整差異）
-const PcbaIQC = () => {
-  const [filters, setFilters] = useState({
-    serial_number: '',
-    lot_no: '',
-    iqc_result: null,
-    dateRange: null,
+const statusColor = {
+  pending: 'default',
+  testing: 'processing',
+  pass: 'green',
+  fail: 'red',
+};
+
+const PcbaIQC = ({ language = 'zh-TW' }) => {
+  const t = translations[language];
+  const pcbaT = t.pcbaIQC;
+
+  const [serial, setSerial] = useState('');
+  const [running, setRunning] = useState(false);
+  const timersRef = useRef([]);
+
+  const [items, setItems] = useState({
+    wifi: 'pending',
+    firmware: 'pending',
+    touch: 'pending',
+    bluetooth: 'pending',
+    speaker: 'pending',
   });
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(false);
+
+  const dataSource = useMemo(() => [
+    { key: 'wifi', item: pcbaT.items.wifi, status: items.wifi },
+    { key: 'firmware', item: pcbaT.items.firmware, status: items.firmware },
+    { key: 'touch', item: pcbaT.items.touch, status: items.touch },
+    { key: 'bluetooth', item: pcbaT.items.bluetooth, status: items.bluetooth },
+    { key: 'speaker', item: pcbaT.items.speaker, status: items.speaker },
+  ], [items, pcbaT.items]);
 
   const columns = [
-    { title: '序號', dataIndex: 'serial_number', key: 'serial_number' },
-    { title: '批號', dataIndex: 'lot_no', key: 'lot_no' },
-    { title: '料號', dataIndex: 'part_no', key: 'part_no' },
-    { title: '檢驗結果', dataIndex: 'iqc_result', key: 'iqc_result', render: (v) => <Tag color={v === 'PASS' ? 'green' : 'red'}>{v || '-'}</Tag> },
-    { title: '檢驗時間', dataIndex: 'iqc_time', key: 'iqc_time', render: (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-') },
+    { title: pcbaT?.title || 'PCBA IQC', dataIndex: 'item', key: 'item' },
+    { 
+      title: pcbaT?.resultSummary,
+      dataIndex: 'status',
+      key: 'status',
+      render: (s) => {
+        const text = s === 'pending' ? pcbaT.status.pending
+          : s === 'testing' ? pcbaT.status.testing
+          : s === 'pass' ? pcbaT.status.pass
+          : pcbaT.status.fail;
+        return <Tag color={statusColor[s]}>{text}</Tag>;
+      }
+    },
   ];
 
-  const query = async () => {
-    setLoading(true);
-    // TODO: 呼叫實際 API：/api/pcba-iqc（目前佔位）
-    // 先放假資料，之後接上後端路由
-    setTimeout(() => {
-      setRecords([
-        { id: 1, serial_number: 'SN123', lot_no: 'LOT-A1', part_no: 'P-001', iqc_result: 'PASS', iqc_time: new Date().toISOString() },
-        { id: 2, serial_number: 'SN124', lot_no: 'LOT-A1', part_no: 'P-002', iqc_result: 'FAIL', iqc_time: new Date().toISOString() },
-      ]);
-      setLoading(false);
-    }, 500);
+  const clearTimers = () => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current = [];
+  };
+
+  const reset = () => {
+    clearTimers();
+    setRunning(false);
+    setItems({ wifi: 'pending', firmware: 'pending', touch: 'pending', bluetooth: 'pending', speaker: 'pending' });
+  };
+
+  const runSequential = async () => {
+    if (!serial) return;
+    setRunning(true);
+
+    const runOne = (key) => new Promise((resolve) => {
+      setItems((prev) => ({ ...prev, [key]: 'testing' }));
+      const id = setTimeout(() => {
+        // 模擬結果（80% PASS, 20% FAIL）
+        const ok = Math.random() < 0.8;
+        setItems((prev) => ({ ...prev, [key]: ok ? 'pass' : 'fail' }));
+        resolve();
+      }, 900);
+      timersRef.current.push(id);
+    });
+
+    for (const key of ['wifi', 'firmware', 'touch', 'bluetooth', 'speaker']) {
+      // eslint-disable-next-line no-await-in-loop
+      await runOne(key);
+    }
+
+    setRunning(false);
   };
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="PCBA進料檢驗 - 查詢條件">
-        <Form layout="inline" onFinish={query}>
-          <Form.Item label="序號">
-            <Input
-              placeholder="序號"
-              value={filters.serial_number}
-              onChange={(e) => setFilters({ ...filters, serial_number: e.target.value })}
-              style={{ width: 200 }}
-            />
-          </Form.Item>
-          <Form.Item label="批號">
-            <Input
-              placeholder="批號"
-              value={filters.lot_no}
-              onChange={(e) => setFilters({ ...filters, lot_no: e.target.value })}
-              style={{ width: 160 }}
-            />
-          </Form.Item>
-          <Form.Item label="檢驗結果">
-            <Select
-              placeholder="選擇"
-              allowClear
-              value={filters.iqc_result}
-              onChange={(v) => setFilters({ ...filters, iqc_result: v })}
-              style={{ width: 140 }}
-            >
-              <Option value="PASS">PASS</Option>
-              <Option value="FAIL">FAIL</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item label="檢驗日期">
-            <RangePicker
-              value={filters.dateRange}
-              onChange={(d) => setFilters({ ...filters, dateRange: d })}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">查詢</Button>
-              <Button onClick={() => setFilters({ serial_number: '', lot_no: '', iqc_result: null, dateRange: null })}>清除</Button>
-            </Space>
-          </Form.Item>
-        </Form>
+      <Card>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Title level={4} style={{ margin: 0 }}>{pcbaT.title}</Title>
+          <Form layout="inline" onFinish={runSequential}>
+            <Form.Item label={pcbaT.enterSerialNumber}>
+              <Input
+                placeholder={pcbaT.enterSerialNumber}
+                value={serial}
+                onChange={(e) => setSerial(e.target.value)}
+                style={{ width: 260 }}
+                disabled={running}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Space>
+                <Button type="primary" htmlType="submit" disabled={!serial || running}>{pcbaT.startTest}</Button>
+                <Button onClick={reset} disabled={running}>{pcbaT.reset}</Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Space>
       </Card>
 
-      <Card title="檢驗紀錄">
+      <Card title={pcbaT.resultSummary}>
         <Table
-          rowKey={(r) => r.id || `${r.serial_number}-${r.lot_no}`}
+          rowKey={(r) => r.key}
           columns={columns}
-          dataSource={records}
-          loading={loading}
-          pagination={{ pageSize: 20 }}
+          dataSource={dataSource}
+          pagination={false}
         />
       </Card>
     </Space>

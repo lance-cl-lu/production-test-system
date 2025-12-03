@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
@@ -26,3 +26,16 @@ def get_db():
 def init_db():
     """Initialize database tables"""
     Base.metadata.create_all(bind=engine)
+    # Ensure missing columns exist (simple migration)
+    try:
+        insp = inspect(engine)
+        cols = [c['name'] for c in insp.get_columns('test_records')]
+        with engine.connect() as conn:
+            if 'humidity' not in cols:
+                conn.execute(text('ALTER TABLE test_records ADD COLUMN humidity DOUBLE NULL'))
+            if 'pressure' not in cols:
+                conn.execute(text('ALTER TABLE test_records ADD COLUMN pressure DOUBLE NULL'))
+            conn.commit()
+    except Exception:
+        # Best-effort; skip if any issue
+        pass

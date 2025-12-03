@@ -14,9 +14,8 @@ class TestRecordBase(BaseModel):
     voltage: Optional[float] = Field(None, description="電壓")
     current: Optional[float] = Field(None, description="電流")
     temperature: Optional[float] = Field(None, description="溫度")
-    humidity: Optional[float] = Field(None, description="濕度")
-    pressure: Optional[float] = Field(None, description="壓力")
-    uuid: Optional[str] = Field(None, description="設備UUID")
+    # 暫不提供濕度/壓力欄位，避免與現有資料庫不一致
+    # uuid: Optional[str] = Field(None, description="設備UUID")
 
 
 class TestRecordCreate(TestRecordBase):

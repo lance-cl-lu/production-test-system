@@ -26,10 +26,11 @@ const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
         params.start_date = filters.dateRange[0].toISOString();
         params.end_date = filters.dateRange[1].toISOString();
       }
-      const res = await axios.get(`${API_BASE}/api/test-records`, { params });
+      const res = await axios.get(`${API_BASE}/api/test-records/`, { params });
       setRecords(res.data || []);
     } catch (e) {
-      message.error(t.loadDataFailed);
+      const detail = e?.response?.data?.detail || e?.message || '';
+      message.error(`${t.loadDataFailed}${detail ? `: ${detail}` : ''}`);
     } finally {
       setLoading(false);
     }

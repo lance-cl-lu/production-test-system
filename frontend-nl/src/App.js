@@ -32,7 +32,7 @@ function App() {
       case 'dashboard':
         return <Dashboard language={language} />;
       case 'pcba-iqc':
-        return <PcbaIQC />;
+        return <PcbaIQC language={language} />;
       case 'records':
         return <TestRecordList language={language} />;
       default:

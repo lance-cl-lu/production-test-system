@@ -8,6 +8,26 @@ export const translations = {
       pcbaIQC: 'PCBA進料檢驗',
       testRecords: '測試記錄',
     },
+    pcbaIQC: {
+      title: 'PCBA進料檢驗測試',
+      enterSerialNumber: '請輸入序號',
+      startTest: '開始測試',
+      reset: '重設',
+      items: {
+        wifi: 'WiFi',
+        firmware: '韌體版本',
+        touch: '觸控按鍵',
+        bluetooth: '藍牙',
+        speaker: '喇叭',
+      },
+      status: {
+        pending: '待測試',
+        testing: '測試中',
+        pass: 'PASS',
+        fail: 'FAIL',
+      },
+      resultSummary: '測試結果',
+    },
     // Dashboard
     totalTests: '總測試數',
     passedTests: '通過數',
@@ -45,6 +65,26 @@ export const translations = {
       dashboard: 'Dashboard',
       pcbaIQC: 'PCBA IQC',
       testRecords: 'Test Records',
+    },
+    pcbaIQC: {
+      title: 'PCBA IQC Test',
+      enterSerialNumber: 'Enter Serial Number',
+      startTest: 'Start Test',
+      reset: 'Reset',
+      items: {
+        wifi: 'WiFi',
+        firmware: 'Firmware Version',
+        touch: 'Touch Buttons',
+        bluetooth: 'Bluetooth',
+        speaker: 'Speaker',
+      },
+      status: {
+        pending: 'Pending',
+        testing: 'Testing',
+        pass: 'PASS',
+        fail: 'FAIL',
+      },
+      resultSummary: 'Test Result',
     },
     // Dashboard
     totalTests: 'Total Tests',
