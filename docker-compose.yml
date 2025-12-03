@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mysql:
     image: mysql:8.0
@@ -44,6 +42,24 @@ services:
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
+    stdin_open: true
+    tty: true
+
+  frontend-b:
+    build: ./frontend-b
+    container_name: production_test_frontend_b
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - PORT=3001
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend-b/src:/app/src
+      - ./frontend-b/public:/app/public
     stdin_open: true
     tty: true
 
