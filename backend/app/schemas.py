@@ -14,6 +14,9 @@ class TestRecordBase(BaseModel):
     voltage: Optional[float] = Field(None, description="電壓")
     current: Optional[float] = Field(None, description="電流")
     temperature: Optional[float] = Field(None, description="溫度")
+    humidity: Optional[float] = Field(None, description="濕度")
+    pressure: Optional[float] = Field(None, description="壓力")
+    uuid: Optional[str] = Field(None, description="設備UUID")
 
 
 class TestRecordCreate(TestRecordBase):
@@ -38,6 +41,9 @@ class TestRecordUpdate(BaseModel):
     voltage: Optional[float] = None
     current: Optional[float] = None
     temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    pressure: Optional[float] = None
+    uuid: Optional[str] = None
 
 
 class CloudUploadLogResponse(BaseModel):

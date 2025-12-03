@@ -22,6 +22,9 @@ class TestRecord(Base):
     voltage = Column(Float, comment="電壓")
     current = Column(Float, comment="電流")
     temperature = Column(Float, comment="溫度")
+    humidity = Column(Float, comment="濕度")
+    pressure = Column(Float, comment="壓力")
+    uuid = Column(String(100), comment="設備UUID")
     
     # 系統欄位
     uploaded_to_cloud = Column(Boolean, default=False, comment="是否已上傳雲端")

@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
+import SensorIQC from './components/SensorIQC';
 import { useWebSocket } from './services/websocket';
 import { translations } from './i18n/locales';
 import './App.css';
@@ -61,7 +62,7 @@ function App() {
     {
       key: 'sensor-iqc',
       icon: <RadarChartOutlined />,
-      label: t.sensorIQC,
+      label: t.sensorIQCMenu,
     },
     {
       key: 'mac-uid',
@@ -87,7 +88,7 @@ function App() {
       case 'gateway-iqc':
         return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.gatewayIQCTest}</h2><p>{t.inDevelopment}</p></div>;
       case 'sensor-iqc':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.sensorIQCTest}</h2><p>{t.inDevelopment}</p></div>;
+        return <SensorIQC language={language} />;
       case 'mac-uid':
         return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.macUIDTest}</h2><p>{t.inDevelopment}</p></div>;
       case 'final-test':
