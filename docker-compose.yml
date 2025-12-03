@@ -27,6 +27,7 @@ services:
       - mysql
     volumes:
       - ./backend:/app
+      - ./shared:/shared
 
   frontend-smac:
     build: ./frontend-smac

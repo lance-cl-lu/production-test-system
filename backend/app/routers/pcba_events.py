@@ -125,13 +125,13 @@ class StartTestRequest(BaseModel):
 
 @router.post("/start-test")
 async def start_test(request: StartTestRequest, db: Session = Depends(get_db)):
-    """啟動 PCBA 測試流程：呼叫 C 程式執行所有測項，解析 JSON 輸出並廣播事件給前端。
+    """啟動 PCBA 測試流程：將 UID 寫入共享檔案，通知 Mac 上的 C 程式開始測試。
     
     流程：
     1. 接收 serial (UID)
-    2. 依序執行 C 程式測試每個階段：wifi, firmware, touch, bluetooth, speaker
-    3. 解析 C 程式輸出的 JSON
-    4. 廣播 testing 和最終結果 (pass/fail) 事件給前端
+    2. 寫入 UID 到 /shared/pcba_test.txt
+    3. Mac 上的 C 程式監看檔案變化，自動執行測試
+    4. C 程式 POST 結果到 /api/pcba/events，透過 WebSocket 廣播給前端
     """
     serial = (request.serial or "").strip()
     if not serial:
@@ -139,89 +139,21 @@ async def start_test(request: StartTestRequest, db: Session = Depends(get_db)):
 
     logger.info(f"[PCBA:/start-test] Starting test for serial: {serial}")
 
-    # C 程式路徑（假設已編譯在 /app/tester/pcba_demo）
-    c_program = os.environ.get("PCBA_TESTER_PATH", "/app/tester/pcba_demo")
-    
-    if not os.path.exists(c_program):
-        logger.error(f"[PCBA:/start-test] C program not found: {c_program}")
-        raise HTTPException(status_code=500, detail="PCBA tester program not found")
-
-    stages = ["wifi", "firmware", "touch", "bluetooth", "speaker"]
-    
     try:
-        for stage in stages:
-            # 先廣播 testing 狀態
-            testing_msg = {
-                "type": "pcba_event",
-                "data": {
-                    "serial": serial,
-                    "stage": stage,
-                    "status": "testing",
-                },
-                "timestamp": datetime.now().isoformat(),
-            }
-            await manager.broadcast(testing_msg)
-            logger.info(f"[PCBA:/start-test] Broadcasting testing for {stage}")
-
-            # 執行 C 程式
-            result = subprocess.run(
-                [c_program, stage, serial],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-
-            if result.returncode != 0:
-                logger.error(f"[PCBA:/start-test] Stage {stage} failed with return code {result.returncode}")
-                # 廣播 fail 事件
-                fail_msg = {
-                    "type": "pcba_event",
-                    "data": {
-                        "serial": serial,
-                        "stage": stage,
-                        "status": "fail",
-                        "detail": {"error": "test execution failed"},
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-                await manager.broadcast(fail_msg)
-                continue
-
-            # 解析 JSON 輸出
-            try:
-                output = result.stdout.strip()
-                event_data = json.loads(output)
-                
-                # 廣播最終結果
-                result_msg = {
-                    "type": "pcba_event",
-                    "data": event_data,
-                    "timestamp": datetime.now().isoformat(),
-                }
-                await manager.broadcast(result_msg)
-                logger.info(f"[PCBA:/start-test] Stage {stage} completed: {event_data.get('status')}")
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"[PCBA:/start-test] Failed to parse JSON from stage {stage}: {e}")
-                fail_msg = {
-                    "type": "pcba_event",
-                    "data": {
-                        "serial": serial,
-                        "stage": stage,
-                        "status": "fail",
-                        "detail": {"error": "invalid test output"},
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-                await manager.broadcast(fail_msg)
-
-        logger.info(f"[PCBA:/start-test] All stages completed for serial: {serial}")
-        return {"status": "completed", "serial": serial, "stages": stages}
-
-    except subprocess.TimeoutExpired:
-        logger.error(f"[PCBA:/start-test] Test timeout for serial: {serial}")
-        raise HTTPException(status_code=500, detail="Test execution timeout")
+        # 寫入 UID 到共享檔案
+        shared_file = "/shared/pcba_test.txt"
+        with open(shared_file, "w") as f:
+            f.write(f"{serial}\n{datetime.now().isoformat()}\n")
+        
+        logger.info(f"[PCBA:/start-test] Written UID to {shared_file}: {serial}")
+        
+        return {
+            "status": "triggered",
+            "serial": serial,
+            "message": "Test request sent to local C program. Results will be broadcasted via WebSocket.",
+        }
+        
     except Exception as e:
-        logger.exception(f"[PCBA:/start-test] Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Test execution error: {str(e)}")
+        logger.exception(f"[PCBA:/start-test] Failed to write shared file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to trigger test")
 

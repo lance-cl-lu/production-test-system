@@ -11,8 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 編譯 PCBA 測試 C 程式
-RUN if [ -f /app/tester/pcba_demo.c ]; then \
-        gcc -o /app/tester/pcba_demo /app/tester/pcba_demo.c; \
-    fi
+RUN gcc -o /app/pcba_demo /app/pcba_demo.c || true
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

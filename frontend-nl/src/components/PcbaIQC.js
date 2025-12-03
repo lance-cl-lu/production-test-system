@@ -1,9 +1,11 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Card, Form, Input, Button, Space, Table, Tag, Typography, message } from 'antd';
 import { translations } from '../i18n/locales';
 import { useWebSocket } from '../services/websocket';
+import axios from 'axios';
 
 const { Title } = Typography;
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
 
 const statusColor = {
   pending: 'default',
@@ -20,6 +22,7 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
   const [running, setRunning] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [lastEvent, setLastEvent] = useState(null);
+  const [testResults, setTestResults] = useState({});
   const timersRef = useRef([]);
 
   const [items, setItems] = useState({
@@ -54,9 +57,68 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
     // eslint-disable-next-line no-console
     console.log('[PCBA] apply event', { serial: incomingSerial, stage: key, status });
     setItems((prev) => ({ ...prev, [key]: status }));
+    
+    // 儲存測試結果詳細資訊
+    if (status === 'pass' || status === 'fail') {
+      setTestResults((prev) => ({
+        ...prev,
+        [key]: {
+          status,
+          detail: ev.detail,
+          timestamp: ev.timestamp || new Date().toISOString(),
+        },
+      }));
+    }
   }, [serial]);
 
   const { isConnected } = useWebSocket(onWsMessage);
+
+  // 監聽所有測項完成，自動寫入 test_records
+  useEffect(() => {
+    const allStages = ['wifi', 'firmware', 'touch', 'bluetooth', 'speaker'];
+    const allCompleted = allStages.every((s) => items[s] === 'pass' || items[s] === 'fail');
+    
+    if (allCompleted && running && serial) {
+      // 計算整體結果
+      const hasFail = allStages.some((s) => items[s] === 'fail');
+      const overallResult = hasFail ? 'FAIL' : 'PASS';
+      
+      // 彙整詳細資料
+      const details = {};
+      allStages.forEach((stage) => {
+        if (testResults[stage]) {
+          details[stage] = testResults[stage];
+        }
+      });
+
+      // 寫入後端
+      const saveTestRecord = async () => {
+        try {
+          const payload = {
+            device_id: serial,
+            product_name: 'NL_PCBA',
+            serial_number: serial,
+            test_station: 'PCBA_IQC',
+            test_result: overallResult,
+            test_time: new Date().toISOString(),
+            temperature: 25.0,
+            test_data: JSON.stringify(details),
+          };
+          
+          await axios.post(`${API_BASE}/api/test-records/`, payload);
+          message.success(`測試完成！結果：${overallResult}，已自動儲存。`);
+          console.log('[PCBA] Test record saved:', payload);
+        } catch (error) {
+          console.error('[PCBA] Failed to save test record:', error);
+          message.error('測試結果儲存失敗，請手動記錄。');
+        } finally {
+          setRunning(false);
+        }
+      };
+
+      saveTestRecord();
+    }
+  }, [items, running, serial, testResults]);
 
   const dataSource = useMemo(() => [
     { key: 'wifi', item: pcbaT.items.wifi, status: items.wifi },
@@ -90,32 +152,52 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
   const reset = () => {
     clearTimers();
     setRunning(false);
+    setTestResults({});
     setItems({ wifi: 'pending', firmware: 'pending', touch: 'pending', bluetooth: 'pending', speaker: 'pending' });
   };
 
   const runSequential = async () => {
     if (!serial) return message.warning('請先輸入序號');
-    if (!demoMode) {
-      // 非 demo 模式：僅發送起始請求（未實作觸發端點時僅提示）
-      message.info('已準備接收事件。請從 C 程式送 pcba_event。');
-      return;
-    }
-    // demo 模式：本地模擬
+    
+    // 重置狀態
+    reset();
     setRunning(true);
-    const runOne = (key) => new Promise((resolve) => {
-      setItems((prev) => ({ ...prev, [key]: 'testing' }));
-      const id = setTimeout(() => {
-        const ok = Math.random() < 0.8;
-        setItems((prev) => ({ ...prev, [key]: ok ? 'pass' : 'fail' }));
-        resolve();
-      }, 900);
-      timersRef.current.push(id);
-    });
-    for (const key of ['wifi', 'firmware', 'touch', 'bluetooth', 'speaker']) {
-      // eslint-disable-next-line no-await-in-loop
-      await runOne(key);
+    
+    if (demoMode) {
+      // demo 模式：本地模擬
+      const runOne = (key) => new Promise((resolve) => {
+        setItems((prev) => ({ ...prev, [key]: 'testing' }));
+        const id = setTimeout(() => {
+          const ok = Math.random() < 0.8;
+          setItems((prev) => ({ ...prev, [key]: ok ? 'pass' : 'fail' }));
+          setTestResults((prev) => ({
+            ...prev,
+            [key]: {
+              status: ok ? 'pass' : 'fail',
+              detail: { demo: true },
+              timestamp: new Date().toISOString(),
+            },
+          }));
+          resolve();
+        }, 900);
+        timersRef.current.push(id);
+      });
+      for (const key of ['wifi', 'firmware', 'touch', 'bluetooth', 'speaker']) {
+        // eslint-disable-next-line no-await-in-loop
+        await runOne(key);
+      }
+    } else {
+      // 正式模式：呼叫後端 start-test API
+      try {
+        message.info('正在啟動測試，請稍候...');
+        await axios.post(`${API_BASE}/api/pcba/start-test`, { serial });
+        // 測試結果會透過 WebSocket 逐步更新，完成後自動儲存
+      } catch (error) {
+        console.error('[PCBA] Failed to start test:', error);
+        message.error('啟動測試失敗，請檢查連線或稍後再試。');
+        setRunning(false);
+      }
     }
-    setRunning(false);
   };
 
   return (
