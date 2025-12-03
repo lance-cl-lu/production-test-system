@@ -13,6 +13,7 @@ import {
 import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
 import SensorIQC from './components/SensorIQC';
+import GatewayIQC from './components/GatewayIQC';
 import { useWebSocket } from './services/websocket';
 import { translations } from './i18n/locales';
 import './App.css';
@@ -57,7 +58,7 @@ function App() {
     {
       key: 'gateway-iqc',
       icon: <ApiOutlined />,
-      label: t.gatewayIQC,
+      label: t.gatewayIQCMenu,
     },
     {
       key: 'sensor-iqc',
@@ -86,7 +87,7 @@ function App() {
       case 'dashboard':
         return <Dashboard language={language} />;
       case 'gateway-iqc':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.gatewayIQCTest}</h2><p>{t.inDevelopment}</p></div>;
+        return <GatewayIQC language={language} />;
       case 'sensor-iqc':
         return <SensorIQC language={language} />;
       case 'mac-uid':

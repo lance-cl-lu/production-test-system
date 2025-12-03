@@ -7,18 +7,18 @@ export const translations = {
     
     // Menu
     dashboard: '儀表板',
-    gatewayIQC: 'Gateway IQC',
-    sensorIQCMenu: 'Sensor IQC',
-    macUID: 'Mac-UID',
-    finalTest: 'Final Test',
+    gatewayIQCMenu: '閘道器進料檢驗',
+    sensorIQCMenu: '感測器進料檢驗',
+    macUID: '燒錄 Mac/UID',
+    finalTest: '成品測試',
     testRecords: '測試記錄',
     
     // Common
     inDevelopment: '開發中...',
     gatewayIQCTest: 'Gateway IQC 測試',
     sensorIQCTest: 'Sensor IQC 測試',
-    macUIDTest: 'Mac-UID 測試',
-    finalTestTitle: 'Final Test',
+    macUIDTest: '燒錄 Mac/UID',
+    finalTestTitle: '成品測試',
     
     // Dashboard
     totalTests: '總測試數',
@@ -51,7 +51,7 @@ export const translations = {
     
     // Sensor IQC
     sensorIQC: {
-      title: 'Sensor IQC 測試',
+      title: '感測器進料檢驗測試',
       description: '感測器進料檢驗測試項目',
       serialNumber: '序號',
       enterSerialNumber: '請輸入序號',
@@ -77,6 +77,37 @@ export const translations = {
       failed: '失敗',
       finalResult: '最終結果',
     },
+    
+    // Gateway IQC
+    gatewayIQC: {
+      title: '閘道器進料檢驗測試',
+      description: '閘道器進料檢驗測試項目',
+      startTest: '開始測試',
+      testItems: '測試項目',
+      getUUID: '取得 UUID',
+      firmwareVersion: '韌體版本',
+      sdCardTest: 'SD 卡讀寫測試',
+      rf24gTest: '2.4G RF 測試',
+      memoryTest: '記憶體測試',
+      rj45PingTest: 'RJ45 Ping 測試',
+      rj45PlugTest: 'RJ45 插拔測試',
+      ledTest: 'LED 測試',
+      buttonTest: '按鈕測試',
+      wifiTest: 'WiFi 測試',
+      bleTest: 'BLE 測試',
+      pass: 'PASS',
+      fail: 'FAIL',
+      pending: '待測試',
+      testing: '測試中',
+      testStarted: '測試已開始',
+      testPassed: '測試通過！',
+      testFailed: '測試失敗！',
+      saveFailed: '保存測試記錄失敗',
+      summary: '測試摘要',
+      passed: '通過',
+      failed: '失敗',
+      finalResult: '最終結果',
+    },
   },
   'en': {
     // Header
@@ -86,9 +117,9 @@ export const translations = {
     
     // Menu
     dashboard: 'Dashboard',
-    gatewayIQC: 'Gateway IQC',
+    gatewayIQCMenu: 'Gateway IQC',
     sensorIQCMenu: 'Sensor IQC',
-    macUID: 'Mac-UID',
+    macUID: 'Program Mac/UID',
     finalTest: 'Final Test',
     testRecords: 'Test Records',
     
@@ -96,7 +127,7 @@ export const translations = {
     inDevelopment: 'In Development...',
     gatewayIQCTest: 'Gateway IQC Test',
     sensorIQCTest: 'Sensor IQC Test',
-    macUIDTest: 'Mac-UID Test',
+    macUIDTest: 'Program Mac/UID',
     finalTestTitle: 'Final Test',
     
     // Dashboard
@@ -143,6 +174,37 @@ export const translations = {
       testLeak: 'Test Leak',
       testButton: 'Test Button',
       testLED: 'Test LED',
+      pass: 'PASS',
+      fail: 'FAIL',
+      pending: 'Pending',
+      testing: 'Testing',
+      testStarted: 'Test started',
+      testPassed: 'Test passed!',
+      testFailed: 'Test failed!',
+      saveFailed: 'Failed to save test record',
+      summary: 'Test Summary',
+      passed: 'Passed',
+      failed: 'Failed',
+      finalResult: 'Final Result',
+    },
+    
+    // Gateway IQC
+    gatewayIQC: {
+      title: 'Gateway IQC Test',
+      description: 'Gateway Incoming Quality Control Test Items',
+      startTest: 'Start Test',
+      testItems: 'Test Items',
+      getUUID: 'Get UUID',
+      firmwareVersion: 'Firmware Version',
+      sdCardTest: 'SD Card Read/Write',
+      rf24gTest: '2.4G RF Test',
+      memoryTest: 'Memory Test',
+      rj45PingTest: 'RJ45 Ping Test',
+      rj45PlugTest: 'RJ45 Plug/Unplug Test',
+      ledTest: 'LED Test',
+      buttonTest: 'Button Test',
+      wifiTest: 'WiFi Test',
+      bleTest: 'BLE Test',
       pass: 'PASS',
       fail: 'FAIL',
       pending: 'Pending',

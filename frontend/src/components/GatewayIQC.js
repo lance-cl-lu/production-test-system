@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Button, Row, Col, Tag, message, Input, Space, Typography } from 'antd';
+import { Card, Button, Row, Col, Tag, message, Space, Typography } from 'antd';
 import { 
   PlayCircleOutlined, 
   CheckCircleOutlined, 
@@ -11,52 +11,60 @@ import { testRecordsAPI } from '../services/api';
 
 const { Title, Text } = Typography;
 
-const SensorIQC = ({ language = 'zh-TW' }) => {
+const GatewayIQC = ({ language = 'zh-TW' }) => {
   const t = translations[language];
   
   const [serialNumber, setSerialNumber] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState({
     getUUID: null,
-    getHumidity: null,
-    getTemperature: null,
-    getPressure: null,
-    testLeak: null,
-    testButton: null,
-    testLED: null,
+    firmwareVersion: null,
+    sdCardTest: null,
+    rf24gTest: null,
+    memoryTest: null,
+    rj45PingTest: null,
+    rj45PlugTest: null,
+    ledTest: null,
+    buttonTest: null,
+    wifiTest: null,
+    bleTest: null,
   });
   const [testData, setTestData] = useState({
     uuid: '',
-    humidity: 0,
-    temperature: 0,
-    pressure: 0,
+    firmwareVersion: '',
   });
 
   const testItems = [
-    { key: 'getUUID', name: t.sensorIQC.getUUID, icon: '🔑' },
-    { key: 'getHumidity', name: t.sensorIQC.getHumidity, icon: '💧' },
-    { key: 'getTemperature', name: t.sensorIQC.getTemperature, icon: '🌡️' },
-    { key: 'getPressure', name: t.sensorIQC.getPressure, icon: '📊' },
-    { key: 'testLeak', name: t.sensorIQC.testLeak, icon: '🔍' },
-    { key: 'testButton', name: t.sensorIQC.testButton, icon: '🔘' },
-    { key: 'testLED', name: t.sensorIQC.testLED, icon: '💡' },
+    { key: 'getUUID', name: t.gatewayIQC.getUUID, icon: '🔑', hasValue: true },
+    { key: 'firmwareVersion', name: t.gatewayIQC.firmwareVersion, icon: '📱', hasValue: true },
+    { key: 'sdCardTest', name: t.gatewayIQC.sdCardTest, icon: '💾', hasValue: false },
+    { key: 'rf24gTest', name: t.gatewayIQC.rf24gTest, icon: '📡', hasValue: false },
+    { key: 'memoryTest', name: t.gatewayIQC.memoryTest, icon: '🧠', hasValue: false },
+    { key: 'rj45PingTest', name: t.gatewayIQC.rj45PingTest, icon: '🌐', hasValue: false },
+    { key: 'rj45PlugTest', name: t.gatewayIQC.rj45PlugTest, icon: '🔌', hasValue: false },
+    { key: 'ledTest', name: t.gatewayIQC.ledTest, icon: '💡', hasValue: false },
+    { key: 'buttonTest', name: t.gatewayIQC.buttonTest, icon: '🔘', hasValue: false },
+    { key: 'wifiTest', name: t.gatewayIQC.wifiTest, icon: '📶', hasValue: false },
+    { key: 'bleTest', name: t.gatewayIQC.bleTest, icon: '🔵', hasValue: false },
   ];
 
   const resetTest = () => {
     setTestResults({
       getUUID: null,
-      getHumidity: null,
-      getTemperature: null,
-      getPressure: null,
-      testLeak: null,
-      testButton: null,
-      testLED: null,
+      firmwareVersion: null,
+      sdCardTest: null,
+      rf24gTest: null,
+      memoryTest: null,
+      rj45PingTest: null,
+      rj45PlugTest: null,
+      ledTest: null,
+      buttonTest: null,
+      wifiTest: null,
+      bleTest: null,
     });
     setTestData({
       uuid: '',
-      humidity: 0,
-      temperature: 0,
-      pressure: 0,
+      firmwareVersion: '',
     });
   };
 
@@ -66,26 +74,18 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     // 模擬測試延遲
     await delay(800 + Math.random() * 1200);
     
-    // 模擬測試結果 (95% 成功率，讓大部分測試都能顯示數據)
+    // 模擬測試結果 (95% 成功率)
     const passed = Math.random() > 0.05;
     
     // 產生測試數據
     switch (testKey) {
       case 'getUUID':
-        const uuid = 'UUID-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+        const uuid = 'GW-UUID-' + Math.random().toString(36).substr(2, 12).toUpperCase();
         setTestData(prev => ({ ...prev, uuid }));
         break;
-      case 'getHumidity':
-        const humidity = (40 + Math.random() * 20).toFixed(1);
-        setTestData(prev => ({ ...prev, humidity }));
-        break;
-      case 'getTemperature':
-        const temperature = (20 + Math.random() * 10).toFixed(1);
-        setTestData(prev => ({ ...prev, temperature }));
-        break;
-      case 'getPressure':
-        const pressure = (1000 + Math.random() * 50).toFixed(1);
-        setTestData(prev => ({ ...prev, pressure }));
+      case 'firmwareVersion':
+        const version = `v${Math.floor(Math.random() * 3 + 1)}.${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 20)}`;
+        setTestData(prev => ({ ...prev, firmwareVersion: version }));
         break;
       default:
         break;
@@ -96,12 +96,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
   const startTest = async () => {
     // 如果沒有輸入序號，自動生成一個
-    const sn = serialNumber.trim() || `SN-${Date.now()}`;
+    const sn = serialNumber.trim() || `GW-SN-${Date.now()}`;
     setSerialNumber(sn);
 
     setTesting(true);
     resetTest();
-    message.info(t.sensorIQC.testStarted);
+    message.info(t.gatewayIQC.testStarted);
 
     let allPassed = true;
 
@@ -123,42 +123,40 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       const finalResult = allPassed ? 'PASS' : 'FAIL';
       
       await testRecordsAPI.create({
-        device_id: 'SENSOR-001',
-        product_name: 'Sensor Device',
+        device_id: 'GATEWAY-001',
+        product_name: 'Gateway Device',
         serial_number: sn,
-        test_station: 'Sensor IQC',
+        test_station: 'Gateway IQC',
         test_result: finalResult,
         test_time: new Date().toISOString(),
-        temperature: parseFloat(testData.temperature) || null,
+        uuid: testData.uuid || null,
         test_data: JSON.stringify({
           uuid: testData.uuid,
-          humidity: testData.humidity,
-          temperature: testData.temperature,
-          pressure: testData.pressure,
+          firmwareVersion: testData.firmwareVersion,
           test_items: testResults,
         }),
       });
 
       if (allPassed) {
-        message.success(t.sensorIQC.testPassed);
+        message.success(t.gatewayIQC.testPassed);
       } else {
-        message.error(t.sensorIQC.testFailed);
+        message.error(t.gatewayIQC.testFailed);
       }
     } catch (error) {
       console.error('Failed to save test record:', error);
-      message.error(t.sensorIQC.saveFailed);
+      message.error(t.gatewayIQC.saveFailed);
     }
   };
 
   const getResultTag = (result) => {
     if (result === 'testing') {
-      return <Tag icon={<LoadingOutlined />} color="processing">{t.sensorIQC.testing}</Tag>;
+      return <Tag icon={<LoadingOutlined />} color="processing">{t.gatewayIQC.testing}</Tag>;
     } else if (result === 'pass') {
-      return <Tag icon={<CheckCircleOutlined />} color="success">{t.sensorIQC.pass}</Tag>;
+      return <Tag icon={<CheckCircleOutlined />} color="success">{t.gatewayIQC.pass}</Tag>;
     } else if (result === 'fail') {
-      return <Tag icon={<CloseCircleOutlined />} color="error">{t.sensorIQC.fail}</Tag>;
+      return <Tag icon={<CloseCircleOutlined />} color="error">{t.gatewayIQC.fail}</Tag>;
     } else {
-      return <Tag color="default">{t.sensorIQC.pending}</Tag>;
+      return <Tag color="default">{t.gatewayIQC.pending}</Tag>;
     }
   };
 
@@ -166,12 +164,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     switch (testKey) {
       case 'getUUID':
         return testData.uuid || '-';
-      case 'getHumidity':
-        return testData.humidity ? `${testData.humidity}%` : '-';
-      case 'getTemperature':
-        return testData.temperature ? `${testData.temperature}°C` : '-';
-      case 'getPressure':
-        return testData.pressure ? `${testData.pressure} hPa` : '-';
+      case 'firmwareVersion':
+        return testData.firmwareVersion || '-';
       default:
         return '';
     }
@@ -182,8 +176,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div>
-            <Title level={2}>{t.sensorIQC.title}</Title>
-            <Text type="secondary">{t.sensorIQC.description}</Text>
+            <Title level={2}>{t.gatewayIQC.title}</Title>
+            <Text type="secondary">{t.gatewayIQC.description}</Text>
           </div>
 
           <Button
@@ -193,28 +187,30 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             onClick={startTest}
             loading={testing}
           >
-            {t.sensorIQC.startTest}
+            {t.gatewayIQC.startTest}
           </Button>
         </Space>
       </Card>
 
-      <Card style={{ marginTop: 24 }} title={t.sensorIQC.testItems}>
+      <Card style={{ marginTop: 24 }} title={t.gatewayIQC.testItems}>
         <Row gutter={[8, 8]}>
           {testItems.map((item) => (
             <Col span={12} key={item.key}>
               <Card size="small">
                 <Row justify="space-between" align="middle">
-                  <Col span={6}>
+                  <Col span={item.hasValue ? 6 : 18}>
                     <Space>
                       <span style={{ fontSize: 24 }}>{item.icon}</span>
                       <Text strong>{item.name}</Text>
                     </Space>
                   </Col>
-                  <Col span={12}>
-                    <Text type="secondary" style={{ fontSize: 16 }}>
-                      {getTestValue(item.key)}
-                    </Text>
-                  </Col>
+                  {item.hasValue && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 16 }}>
+                        {getTestValue(item.key)}
+                      </Text>
+                    </Col>
+                  )}
                   <Col span={6} style={{ textAlign: 'right' }}>
                     {getResultTag(testResults[item.key])}
                   </Col>
@@ -228,19 +224,19 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       {Object.values(testResults).some(r => r !== null) && !testing && (
         <Card style={{ marginTop: 24 }}>
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Title level={4}>{t.sensorIQC.summary}</Title>
+            <Title level={4}>{t.gatewayIQC.summary}</Title>
             <Text>
-              {t.sensorIQC.passed}: {Object.values(testResults).filter(r => r === 'pass').length} / {testItems.length}
+              {t.gatewayIQC.passed}: {Object.values(testResults).filter(r => r === 'pass').length} / {testItems.length}
             </Text>
             <Text>
-              {t.sensorIQC.failed}: {Object.values(testResults).filter(r => r === 'fail').length} / {testItems.length}
+              {t.gatewayIQC.failed}: {Object.values(testResults).filter(r => r === 'fail').length} / {testItems.length}
             </Text>
             <Text strong>
-              {t.sensorIQC.finalResult}: {' '}
+              {t.gatewayIQC.finalResult}: {' '}
               {Object.values(testResults).every(r => r === 'pass') ? (
-                <Tag icon={<CheckCircleOutlined />} color="success">{t.sensorIQC.pass}</Tag>
+                <Tag icon={<CheckCircleOutlined />} color="success">{t.gatewayIQC.pass}</Tag>
               ) : (
-                <Tag icon={<CloseCircleOutlined />} color="error">{t.sensorIQC.fail}</Tag>
+                <Tag icon={<CloseCircleOutlined />} color="error">{t.gatewayIQC.fail}</Tag>
               )}
             </Text>
           </Space>
@@ -250,4 +246,4 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   );
 };
 
-export default SensorIQC;
+export default GatewayIQC;
