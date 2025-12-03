@@ -1,7 +1,7 @@
 export const translations = {
   'zh-TW': {
     // Header
-    systemTitle: '生產測試資料管理系統',
+    systemTitle: 'SmartAC 生產測試資料管理系統',
     connected: '已連線',
     disconnected: '未連線',
     
@@ -170,7 +170,7 @@ export const translations = {
   },
   'en': {
     // Header
-    systemTitle: 'Production Test Management System',
+    systemTitle: 'SmartAC Production Test Management System',
     connected: 'Connected',
     disconnected: 'Disconnected',
     
