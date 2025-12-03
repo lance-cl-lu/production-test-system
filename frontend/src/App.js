@@ -14,6 +14,7 @@ import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
 import SensorIQC from './components/SensorIQC';
 import GatewayIQC from './components/GatewayIQC';
+import ProgramMacUID from './components/ProgramMacUID';
 import { useWebSocket } from './services/websocket';
 import { translations } from './i18n/locales';
 import './App.css';
@@ -91,7 +92,7 @@ function App() {
       case 'sensor-iqc':
         return <SensorIQC language={language} />;
       case 'mac-uid':
-        return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.macUIDTest}</h2><p>{t.inDevelopment}</p></div>;
+        return <ProgramMacUID language={language} />;
       case 'final-test':
         return <div style={{ padding: 24, textAlign: 'center' }}><h2>{t.finalTestTitle}</h2><p>{t.inDevelopment}</p></div>;
       case 'records':

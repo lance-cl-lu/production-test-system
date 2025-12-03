@@ -108,6 +108,20 @@ export const translations = {
       failed: '失敗',
       finalResult: '最終結果',
     },
+    
+    // Program Mac/UID
+    programMacUID: {
+      title: '燒錄 Mac/UID',
+      description: '燒錄設備 Mac 位址或 UID',
+      uid: 'UID',
+      enterUID: '請輸入 UID',
+      programButton: '燒錄',
+      programming: '燒錄中...',
+      programSuccess: '燒錄成功！',
+      programFailed: '燒錄失敗',
+      programmedUID: '已燒錄 UID',
+      programmedTime: '燒錄時間',
+    },
   },
   'en': {
     // Header
@@ -217,6 +231,20 @@ export const translations = {
       passed: 'Passed',
       failed: 'Failed',
       finalResult: 'Final Result',
+    },
+    
+    // Program Mac/UID
+    programMacUID: {
+      title: 'Program Mac/UID',
+      description: 'Program device Mac address or UID',
+      uid: 'UID',
+      enterUID: 'Please enter UID',
+      programButton: 'Program',
+      programming: 'Programming...',
+      programSuccess: 'Program successful!',
+      programFailed: 'Program failed',
+      programmedUID: 'Programmed UID',
+      programmedTime: 'Programmed Time',
     },
   },
 };
