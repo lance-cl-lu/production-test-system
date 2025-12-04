@@ -11,12 +11,36 @@ class TestRecordService:
     
     @staticmethod
     def create_test_record(db: Session, record: TestRecordCreate) -> TestRecord:
-        """建立測試記錄"""
-        db_record = TestRecord(**record.model_dump())
-        db.add(db_record)
-        db.commit()
-        db.refresh(db_record)
-        return db_record
+        """建立或更新測試記錄
+        
+        使用 upsert 邏輯：
+        - 若 (device_id, serial_number) 已存在，則更新
+        - 若不存在，則新增
+        """
+        record_data = record.model_dump()
+        device_id = record_data.get('device_id')
+        serial_number = record_data.get('serial_number')
+        
+        # 查詢是否已存在相同的 device_id + serial_number
+        existing_record = db.query(TestRecord).filter(
+            TestRecord.device_id == device_id,
+            TestRecord.serial_number == serial_number
+        ).first()
+        
+        if existing_record:
+            # 更新現有記錄
+            for key, value in record_data.items():
+                setattr(existing_record, key, value)
+            db.commit()
+            db.refresh(existing_record)
+            return existing_record
+        else:
+            # 新增新記錄
+            db_record = TestRecord(**record_data)
+            db.add(db_record)
+            db.commit()
+            db.refresh(db_record)
+            return db_record
     
     @staticmethod
     def get_test_record(db: Session, record_id: int) -> Optional[TestRecord]:

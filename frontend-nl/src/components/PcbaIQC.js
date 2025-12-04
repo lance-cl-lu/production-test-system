@@ -14,7 +14,7 @@ const statusColor = {
   fail: 'red',
 };
 
-const PcbaIQC = ({ language = 'zh-TW' }) => {
+const PcbaIQC = ({ language = 'zh-TW', setPcbaOnMessage }) => {
   const t = translations[language];
   const pcbaT = t.pcbaIQC;
 
@@ -91,7 +91,19 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
     }
   }, [pcbaT]);
 
-  const { isConnected } = useWebSocket(onWsMessage);
+  // 使用全局 WebSocket 連接處理訊息
+  // 組件掛載時註冊訊息處理器，卸載時取消註冊
+  useEffect(() => {
+    if (setPcbaOnMessage) {
+      // 使用函數形式來避免 React 把 onWsMessage 當作 state updater
+      setPcbaOnMessage(() => onWsMessage);
+    }
+    return () => {
+      if (setPcbaOnMessage) {
+        setPcbaOnMessage(() => null);
+      }
+    };
+  }, [onWsMessage, setPcbaOnMessage]);
 
   // 監聽所有測項完成，自動寫入 test_records
   useEffect(() => {
@@ -277,9 +289,6 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
               </Space>
             </Form.Item>
           </Form>
-          <div style={{ fontSize: 12, color: isConnected ? '#3f8600' : '#cf1322' }}>
-            WS {isConnected ? 'connected' : 'disconnected'}
-          </div>
         </Space>
       </Card>
 

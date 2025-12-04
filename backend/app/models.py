@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -10,7 +10,7 @@ class TestRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     device_id = Column(String(100), index=True, nullable=False, comment="設備ID")
     product_name = Column(String(200), nullable=False, comment="產品名稱")
-    serial_number = Column(String(100), unique=True, index=True, nullable=False, comment="序號")
+    serial_number = Column(String(100), index=True, nullable=False, comment="序號")
     test_station = Column(String(100), nullable=False, comment="測試站別")
     test_result = Column(String(20), nullable=False, comment="測試結果: PASS/FAIL")
     test_time = Column(DateTime, nullable=False, comment="測試時間")
@@ -29,6 +29,11 @@ class TestRecord(Base):
     uploaded_to_cloud = Column(Boolean, default=False, comment="是否已上傳雲端")
     created_at = Column(DateTime, server_default=func.now(), comment="建立時間")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新時間")
+    
+    # 複合唯一約束：device_id + serial_number 必須唯一
+    __table_args__ = (
+        UniqueConstraint('device_id', 'serial_number', name='uq_device_serial'),
+    )
     
     def __repr__(self):
         return f"<TestRecord {self.serial_number} - {self.test_result}>"
