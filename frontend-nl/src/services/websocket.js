@@ -7,6 +7,12 @@ export const useWebSocket = (onMessage) => {
   const [lastMessage, setLastMessage] = useState(null);
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
+  const onMessageRef = useRef(onMessage);
+
+  // 更新 onMessageRef，但不觸發重新連接
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   const connect = useCallback(() => {
     try {
@@ -39,7 +45,7 @@ export const useWebSocket = (onMessage) => {
             timestamp: message?.timestamp,
           });
         }
-        if (onMessage) onMessage(message);
+        if (onMessageRef.current) onMessageRef.current(message);
       };
 
       ws.current.onerror = (err) => {
@@ -56,7 +62,7 @@ export const useWebSocket = (onMessage) => {
     } catch (error) {
       console.error('WebSocket connection error:', error);
     }
-  }, [onMessage]);
+  }, []);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);

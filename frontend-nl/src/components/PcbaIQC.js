@@ -25,6 +25,8 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
   const [lastEvent, setLastEvent] = useState(null);
   const [testResults, setTestResults] = useState({});
   const timersRef = useRef([]);
+  const serialRef = useRef('');
+  const lastUidRef = useRef('');
 
   const [items, setItems] = useState({
     wifi: 'pending',
@@ -34,12 +36,18 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
     speaker: 'pending',
   });
 
+  // 更新 serialRef 當 serial 改變
+  useEffect(() => {
+    serialRef.current = serial;
+  }, [serial]);
+
   const normalize = (s) => (s || '').trim();
   const onWsMessage = useCallback((msg) => {
     // Handle UID search events
     if (msg?.type === 'uid_search') {
       const receivedUid = msg.data?.uid;
-      if (receivedUid) {
+      if (receivedUid && receivedUid !== lastUidRef.current) {
+        lastUidRef.current = receivedUid;
         setSerial(receivedUid);
         setSearchingUid(false);
         message.success(`${pcbaT.uidReceived}: ${receivedUid}`);
@@ -56,7 +64,7 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
       return;
     }
     const incomingSerial = normalize(ev.serial);
-    const currentSerial = normalize(serial);
+    const currentSerial = normalize(serialRef.current);
     if (incomingSerial !== currentSerial) {
       // eslint-disable-next-line no-console
       console.log('[PCBA] ignore event: serial mismatch', { incomingSerial, currentSerial });
@@ -81,7 +89,7 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
         },
       }));
     }
-  }, [serial, pcbaT]);
+  }, [pcbaT]);
 
   const { isConnected } = useWebSocket(onWsMessage);
 
@@ -166,13 +174,24 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
     setRunning(false);
     setTestResults({});
     setItems({ wifi: 'pending', firmware: 'pending', touch: 'pending', bluetooth: 'pending', speaker: 'pending' });
+    lastUidRef.current = ''; // 重置已接收的 UID
   };
 
   const handleSearch = async () => {
     setSearchingUid(true);
     message.info(pcbaT.searchingUid || 'Searching for UID...');
-    // UID will be received via WebSocket from uid_searcher.c
-    // Set a timeout to stop searching after 30 seconds
+    
+    try {
+      // 呼叫後端 uid-search 端點
+      await axios.post(`${API_BASE}/api/pcba/uid-search`, {});
+      // UID 將透過 WebSocket 接收並自動填入
+    } catch (error) {
+      console.error('[PCBA] Failed to trigger UID search:', error);
+      message.error('搜尋失敗，請檢查連線');
+      setSearchingUid(false);
+    }
+    
+    // 設定逾時保護
     setTimeout(() => {
       if (searchingUid) {
         setSearchingUid(false);

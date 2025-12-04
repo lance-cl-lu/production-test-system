@@ -13,23 +13,17 @@ else
   LDFLAGS += -L"$(CURL_PREFIX)/lib"
 endif
 
-TARGETS := pcba_watcher uid_searcher
+TARGET := pcba_watcher
 
-.PHONY: all clean run_watcher run_searcher
+.PHONY: all clean run
 
-all: $(TARGETS)
+all: $(TARGET)
 
 pcba_watcher: pcba_watcher.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-uid_searcher: uid_searcher.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
-
-run_watcher: pcba_watcher
-	./pcba_watcher
-
-run_searcher: uid_searcher
-	./uid_searcher
+run: $(TARGET)
+	./$(TARGET)
 
 clean:
-	rm -f $(TARGETS)
+	rm -f $(TARGET)

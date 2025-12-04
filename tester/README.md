@@ -7,10 +7,9 @@
 本目錄包含多個測試工具：
 
 - **tester.py**：Python 測試腳本（批次測試與連續測試）
-- **pcba_watcher.c**：監聽檔案變更並觸發 PCBA 測試流程（詳見 `README_WATCHER.md`）
-- **uid_searcher.c**：搜尋設備 UID 並自動傳送至前端（詳見 `README_UID_SEARCHER.md`）
+- **pcba_watcher.c**：整合 UID 搜尋與測試流程的監看程式（詳見 `README_WATCHER.md`）
 - **trigger_pcba.sh**：一鍵觸發 PCBA 測試的 Shell 腳本
-- **Makefile**：編譯 C 程式工具（支援 `pcba_watcher` 和 `uid_searcher`）
+- **Makefile**：編譯 C 程式工具
 
 ## 安裝
 

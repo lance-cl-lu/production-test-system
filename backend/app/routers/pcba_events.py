@@ -124,23 +124,54 @@ class StartTestRequest(BaseModel):
 
 
 class UidSearchRequest(BaseModel):
-    uid: str
+    uid: Optional[str] = None
 
 
 @router.post("/uid-search")
 async def uid_search(request: UidSearchRequest):
-    """接收來自 uid_searcher.c 的 UID 並廣播給前端。
+    """前端請求搜尋 UID。
     
     流程：
-    1. uid_searcher.c 找到設備後 POST UID 到此端點
-    2. 後端透過 WebSocket 廣播 uid_search 事件給所有前端
+    1. 前端點擊「搜尋」按鈕，POST 到此端點（request.uid 可為空）
+    2. 寫入 SEARCH 指令到共享檔案
+    3. pcba_watcher 讀取指令，產生虛擬 UID
+    4. pcba_watcher POST UID 回 /api/pcba/uid-found
+    5. 後端透過 WebSocket 廣播給前端
+    """
+    logger.info(f"[PCBA:/uid-search] Search request received")
+
+    try:
+        # 寫入 SEARCH 指令到共享檔案
+        shared_file = "../shared/pcba_test.txt"
+        with open(shared_file, "w") as f:
+            f.write(f"SEARCH\n{datetime.now().isoformat()}\n")
+        
+        logger.info(f"[PCBA:/uid-search] Written SEARCH command to {shared_file}")
+        
+        return {
+            "status": "searching",
+            "message": "UID search request sent to pcba_watcher",
+        }
+        
+    except Exception as e:
+        logger.exception(f"[PCBA:/uid-search] Failed to write search command: {e}")
+        raise HTTPException(status_code=500, detail="Failed to trigger UID search")
+
+
+@router.post("/uid-found")
+async def uid_found(request: UidSearchRequest):
+    """pcba_watcher 回報找到的 UID。
+    
+    流程：
+    1. pcba_watcher 產生虛擬 UID 後 POST 到此端點
+    2. 後端透過 WebSocket 廣播給前端
     3. 前端接收後自動填入 UID 欄位
     """
     uid = (request.uid or "").strip()
     if not uid:
         raise HTTPException(status_code=400, detail="uid is required")
 
-    logger.info(f"[PCBA:/uid-search] Received UID: {uid}")
+    logger.info(f"[PCBA:/uid-found] Received UID from watcher: {uid}")
 
     try:
         message = {
@@ -152,7 +183,7 @@ async def uid_search(request: UidSearchRequest):
         }
         
         await manager.broadcast(message)
-        logger.info(f"[PCBA:/uid-search] Broadcasted UID to frontend: {uid}")
+        logger.info(f"[PCBA:/uid-found] Broadcasted UID to frontend: {uid}")
         
         return {
             "status": "accepted",
@@ -161,7 +192,7 @@ async def uid_search(request: UidSearchRequest):
         }
         
     except Exception as e:
-        logger.exception(f"[PCBA:/uid-search] Failed to broadcast UID: {e}")
+        logger.exception(f"[PCBA:/uid-found] Failed to broadcast UID: {e}")
         raise HTTPException(status_code=500, detail="Failed to broadcast UID")
 
 
@@ -182,20 +213,20 @@ async def start_test(request: StartTestRequest, db: Session = Depends(get_db)):
     logger.info(f"[PCBA:/start-test] Starting test for serial: {serial}")
 
     try:
-        # 寫入 UID 到共享檔案
-        shared_file = "/shared/pcba_test.txt"
+        # 寫入 TEST 指令和序號到共享檔案
+        shared_file = "../shared/pcba_test.txt"
         with open(shared_file, "w") as f:
-            f.write(f"{serial}\n{datetime.now().isoformat()}\n")
+            f.write(f"TEST {serial}\n{datetime.now().isoformat()}\n")
         
-        logger.info(f"[PCBA:/start-test] Written UID to {shared_file}: {serial}")
+        logger.info(f"[PCBA:/start-test] Written TEST command to {shared_file}: {serial}")
         
         return {
             "status": "triggered",
             "serial": serial,
-            "message": "Test request sent to local C program. Results will be broadcasted via WebSocket.",
+            "message": "Test request sent to pcba_watcher. Results will be broadcasted via WebSocket.",
         }
         
     except Exception as e:
-        logger.exception(f"[PCBA:/start-test] Failed to write shared file: {e}")
+        logger.exception(f"[PCBA:/start-test] Failed to write test command: {e}")
         raise HTTPException(status_code=500, detail="Failed to trigger test")
 
