@@ -48,6 +48,9 @@ export const translations = {
     total: '共',
     items: '筆',
     loadDataFailed: '載入資料失敗',
+    delete: '刪除',
+    deletedSuccess: '刪除成功',
+    deletedFailed: '刪除失敗',
     
     // Sensor IQC
     sensorIQC: {
@@ -217,6 +220,9 @@ export const translations = {
     total: 'Total',
     items: 'items',
     loadDataFailed: 'Failed to load data',
+    delete: 'Delete',
+    deletedSuccess: 'Deleted successfully',
+    deletedFailed: 'Delete failed',
     
     // Sensor IQC
     sensorIQC: {

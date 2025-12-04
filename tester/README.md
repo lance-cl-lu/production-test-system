@@ -19,6 +19,63 @@ cp .env.example .env
 ## 使用方式
 
 ### 1. 單次測試
+
+### 觸發檔案格式（pcba_test.txt）
+
+Watcher 監聽 `../shared/pcba_test.txt`。為了簡化操作，統一以下格式：
+
+- 單行指令：`SERIAL <序號> <動作>`
+- `<動作>` 支援：`START`、`STOP`
+
+範例：
+
+```
+SERIAL NL-20251204-0001 START
+SERIAL NL-20251204-0001 STOP
+SERIAL GW-ABCDEF123456 START
+```
+
+注意事項：
+- 建議每次觸發覆寫整個檔案內容為單一指令，避免混淆。
+- Watcher 每次檔案變更時讀取當前最後一行指令並送至後端 API。
+
+### 一鍵觸發腳本
+
+提供 `tester/trigger_pcba.sh`，支援互動模式與參數模式：
+
+用法：
+
+```
+# 互動模式（依序輸入序號與動作）
+./trigger_pcba.sh
+
+# 參數模式
+./trigger_pcba.sh <SERIAL> <START|STOP>
+
+# 範例
+./trigger_pcba.sh NL-20251204-0001 START
+./trigger_pcba.sh GW-ABCDEF123456 STOP
+```
+
+執行前請賦予執行權限：
+
+```
+chmod +x ./trigger_pcba.sh
+```
+
+腳本行為：
+- 會將 `SERIAL <SERIAL> <ACTION>` 寫入 `../shared/pcba_test.txt`（覆寫）。
+- 寫入後 `touch` 檔案，讓 watcher 立即偵測到變更。
+- 會在終端印出已觸發內容方便確認。
+
+### 後端連線檢查
+
+Watcher 會將指令轉送至後端 `http://localhost:8000/api/pcba/events`。請確保後端服務已啟動並可連線。
+
+### 疑難排解
+
+- 若 watcher 無反應，確認 `../shared/pcba_test.txt` 路徑與權限。
+- 若後端未收到事件，確認後端服務與防火牆設定。
 執行一次測試並上傳資料:
 ```bash
 python tester.py single

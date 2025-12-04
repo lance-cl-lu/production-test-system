@@ -10,9 +10,25 @@
 # macOS
 brew install curl
 
-# 編譯
+# 編譯（方式一：直接 gcc）
 cd tester
 gcc -o pcba_watcher pcba_watcher.c -lcurl
+
+# 若遇到找不到 curl headers 或 libraries，可指定 Homebrew 的 include/lib 路徑：
+gcc -I"$(brew --prefix curl)/include" -L"$(brew --prefix curl)/lib" -o pcba_watcher pcba_watcher.c -lcurl
+
+# 編譯（方式二：使用 Makefile）
+make
+```
+
+Makefile 目標（於 `tester/Makefile`）：
+
+```
+# 預設：建置二進位
+make
+
+# 乾淨重建
+make clean && make
 ```
 
 ## 執行
@@ -21,6 +37,9 @@ gcc -o pcba_watcher pcba_watcher.c -lcurl
 # 在專案根目錄執行
 cd /Users/lance/Documents/GitHub/production-test-system/tester
 ./pcba_watcher
+
+# 或使用 Makefile 的 run 目標（若已提供）
+make run
 ```
 
 程式會持續運行並顯示：

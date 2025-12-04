@@ -122,6 +122,29 @@ const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
         </Tag>
       ),
     },
+    {
+      title: t.delete,
+      key: 'actions',
+      width: 100,
+      render: (_, record) => (
+        <Button
+          danger
+          size="small"
+          onClick={async () => {
+            try {
+              await testRecordsAPI.delete(record.id);
+              message.success(t.deletedSuccess || 'Deleted');
+              fetchRecords();
+            } catch (err) {
+              console.error(err);
+              message.error(t.deletedFailed || 'Delete failed');
+            }
+          }}
+        >
+          {t.delete}
+        </Button>
+      ),
+    },
   ];
 
   return (

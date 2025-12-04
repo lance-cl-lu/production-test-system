@@ -51,6 +51,24 @@ const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
     { title: t.temperature, dataIndex: 'temperature', key: 'temperature', render: (v) => v?.toFixed(1) || '-' },
     { title: t.testTime, dataIndex: 'test_time', key: 'test_time', render: (time) => dayjs(time).format('YYYY-MM-DD HH:mm:ss') },
     { title: t.cloudUpload, dataIndex: 'uploaded_to_cloud', key: 'uploaded_to_cloud', render: (u) => <Tag color={u ? 'blue' : 'default'}>{u ? t.uploaded : t.notUploaded}</Tag> },
+    { title: t.delete, key: 'actions', width: 100, render: (_, record) => (
+      <Button
+        danger
+        size="small"
+        onClick={async () => {
+          try {
+            await axios.delete(`${API_BASE}/api/test-records/${record.id}`);
+            message.success(t.deletedSuccess || 'Deleted');
+            fetchRecords();
+          } catch (e) {
+            console.error(e);
+            message.error(t.deletedFailed || 'Delete failed');
+          }
+        }}
+      >
+        {t.delete}
+      </Button>
+    ) },
   ];
 
   return (
