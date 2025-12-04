@@ -123,6 +123,48 @@ class StartTestRequest(BaseModel):
     serial: str
 
 
+class UidSearchRequest(BaseModel):
+    uid: str
+
+
+@router.post("/uid-search")
+async def uid_search(request: UidSearchRequest):
+    """接收來自 uid_searcher.c 的 UID 並廣播給前端。
+    
+    流程：
+    1. uid_searcher.c 找到設備後 POST UID 到此端點
+    2. 後端透過 WebSocket 廣播 uid_search 事件給所有前端
+    3. 前端接收後自動填入 UID 欄位
+    """
+    uid = (request.uid or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="uid is required")
+
+    logger.info(f"[PCBA:/uid-search] Received UID: {uid}")
+
+    try:
+        message = {
+            "type": "uid_search",
+            "data": {
+                "uid": uid,
+            },
+            "timestamp": datetime.now().isoformat(),
+        }
+        
+        await manager.broadcast(message)
+        logger.info(f"[PCBA:/uid-search] Broadcasted UID to frontend: {uid}")
+        
+        return {
+            "status": "accepted",
+            "uid": uid,
+            "message": "UID broadcasted to frontend",
+        }
+        
+    except Exception as e:
+        logger.exception(f"[PCBA:/uid-search] Failed to broadcast UID: {e}")
+        raise HTTPException(status_code=500, detail="Failed to broadcast UID")
+
+
 @router.post("/start-test")
 async def start_test(request: StartTestRequest, db: Session = Depends(get_db)):
     """啟動 PCBA 測試流程：將 UID 寫入共享檔案，通知 Mac 上的 C 程式開始測試。

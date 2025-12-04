@@ -19,6 +19,8 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
   const pcbaT = t.pcbaIQC;
 
   const [serial, setSerial] = useState('');
+  const [uid, setUid] = useState('');
+  const [searchingUid, setSearchingUid] = useState(false);
   const [running, setRunning] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [lastEvent, setLastEvent] = useState(null);
@@ -35,6 +37,18 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
 
   const normalize = (s) => (s || '').trim();
   const onWsMessage = useCallback((msg) => {
+    // Handle UID search events
+    if (msg?.type === 'uid_search') {
+      const receivedUid = msg.data?.uid;
+      if (receivedUid) {
+        setUid(receivedUid);
+        setSerial(receivedUid);
+        setSearchingUid(false);
+        message.success(`${pcbaT.uidReceived}: ${receivedUid}`);
+      }
+      return;
+    }
+    
     if (msg?.type !== 'pcba_event') return;
     const ev = msg.data;
     setLastEvent(ev);
@@ -69,7 +83,7 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
         },
       }));
     }
-  }, [serial]);
+  }, [serial, pcbaT]);
 
   const { isConnected } = useWebSocket(onWsMessage);
 
@@ -156,6 +170,20 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
     setItems({ wifi: 'pending', firmware: 'pending', touch: 'pending', bluetooth: 'pending', speaker: 'pending' });
   };
 
+  const handleSearch = async () => {
+    setSearchingUid(true);
+    setUid('');
+    message.info(pcbaT.searchingUid || 'Searching for UID...');
+    // UID will be received via WebSocket from uid_searcher.c
+    // Set a timeout to stop searching after 30 seconds
+    setTimeout(() => {
+      if (searchingUid) {
+        setSearchingUid(false);
+        message.warning(pcbaT.searchTimeout || 'UID search timeout');
+      }
+    }, 30000);
+  };
+
   const runSequential = async () => {
     if (!serial) return message.warning('請先輸入序號');
     
@@ -205,6 +233,27 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
       <Card>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Title level={4} style={{ margin: 0 }}>{pcbaT.title}</Title>
+          <Form layout="inline">
+            <Form.Item label={pcbaT.uid || 'UID'}>
+              <Input
+                placeholder={pcbaT.uidPlaceholder || 'UID will appear here'}
+                value={uid}
+                onChange={(e) => setUid(e.target.value)}
+                style={{ width: 260 }}
+                disabled={running || searchingUid}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Button 
+                type="default" 
+                onClick={handleSearch} 
+                loading={searchingUid}
+                disabled={running}
+              >
+                {pcbaT.search || 'Search'}
+              </Button>
+            </Form.Item>
+          </Form>
           <Form layout="inline" onFinish={runSequential}>
             <Form.Item label={pcbaT.enterSerialNumber}>
               <Input
