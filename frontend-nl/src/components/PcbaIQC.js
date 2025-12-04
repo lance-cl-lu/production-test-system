@@ -19,7 +19,6 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
   const pcbaT = t.pcbaIQC;
 
   const [serial, setSerial] = useState('');
-  const [uid, setUid] = useState('');
   const [searchingUid, setSearchingUid] = useState(false);
   const [running, setRunning] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
@@ -41,7 +40,6 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
     if (msg?.type === 'uid_search') {
       const receivedUid = msg.data?.uid;
       if (receivedUid) {
-        setUid(receivedUid);
         setSerial(receivedUid);
         setSearchingUid(false);
         message.success(`${pcbaT.uidReceived}: ${receivedUid}`);
@@ -172,7 +170,6 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
 
   const handleSearch = async () => {
     setSearchingUid(true);
-    setUid('');
     message.info(pcbaT.searchingUid || 'Searching for UID...');
     // UID will be received via WebSocket from uid_searcher.c
     // Set a timeout to stop searching after 30 seconds
@@ -233,27 +230,6 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
       <Card>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Title level={4} style={{ margin: 0 }}>{pcbaT.title}</Title>
-          <Form layout="inline">
-            <Form.Item label={pcbaT.uid || 'UID'}>
-              <Input
-                placeholder={pcbaT.uidPlaceholder || 'UID will appear here'}
-                value={uid}
-                onChange={(e) => setUid(e.target.value)}
-                style={{ width: 260 }}
-                disabled={running || searchingUid}
-              />
-            </Form.Item>
-            <Form.Item>
-              <Button 
-                type="default" 
-                onClick={handleSearch} 
-                loading={searchingUid}
-                disabled={running}
-              >
-                {pcbaT.search || 'Search'}
-              </Button>
-            </Form.Item>
-          </Form>
           <Form layout="inline" onFinish={runSequential}>
             <Form.Item label={pcbaT.enterSerialNumber}>
               <Input
@@ -266,6 +242,14 @@ const PcbaIQC = ({ language = 'zh-TW' }) => {
             </Form.Item>
             <Form.Item>
               <Space>
+                <Button 
+                  type="default" 
+                  onClick={handleSearch} 
+                  loading={searchingUid}
+                  disabled={running}
+                >
+                  {pcbaT.search || 'Search'}
+                </Button>
                 <Button type="primary" htmlType="submit" disabled={!serial || running}>{pcbaT.startTest}</Button>
                 <Button onClick={reset} disabled={running}>{pcbaT.reset}</Button>
                 <Button onClick={() => setDemoMode((v) => !v)} disabled={running}>
