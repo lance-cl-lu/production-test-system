@@ -5,7 +5,7 @@
 為了在客戶環境中運行此系統，請使用以下文件：
 
 ### 必需文件
-- `docker-compose.yml` - Docker Compose 配置（使用預構建鏡像）
+- `docker-compose.prod.yml` - 生產環境 Docker Compose 配置（使用預構建鏡像）
 - `.env.example` - 環境變量模板（請複製為 `.env` 並修改）
 
 ### 文檔
@@ -36,14 +36,14 @@ cp .env.example .env
 ### 3️⃣ 啟動應用
 
 ```bash
-docker-compose pull    # 拉取最新鏡像
-docker-compose up -d   # 啟動所有服務
+docker-compose -f docker-compose.prod.yml pull    # 拉取最新鏡像
+docker-compose -f docker-compose.prod.yml up -d   # 啟動所有服務
 ```
 
 ### ✅ 驗證啟動成功
 
 ```bash
-docker-compose ps
+docker-compose -f docker-compose.prod.yml ps
 ```
 
 所有容器應顯示 `Up` 狀態。
@@ -61,17 +61,17 @@ docker-compose ps
 
 ```bash
 # 查看日誌
-docker-compose logs -f backend
+docker-compose -f docker-compose.prod.yml logs -f backend
 
 # 重啟服務
-docker-compose restart
+docker-compose -f docker-compose.prod.yml restart
 
 # 停止服務
-docker-compose down
+docker-compose -f docker-compose.prod.yml down
 
 # 更新到最新版本
-docker-compose pull
-docker-compose up -d
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ## 🔒 安全建議
@@ -79,7 +79,7 @@ docker-compose up -d
 - ✅ 使用強密碼修改 `.env` 中的 `MYSQL_ROOT_PASSWORD` 和 `MYSQL_PASSWORD`
 - ✅ 將 `REACT_APP_API_URL` 設置為實際伺服器 IP/域名
 - ✅ 在生產環境使用 HTTPS（建議用 Nginx 反向代理）
-- ✅ 定期更新 Docker 鏡像：`docker-compose pull`
+- ✅ 定期更新 Docker 鏡像：`docker-compose -f docker-compose.prod.yml pull`
 
 ## 🆘 故障排除
 
@@ -92,12 +92,12 @@ docker login ghcr.io
 
 **問題：容器無法啟動**
 ```bash
-docker-compose logs mysql
-docker-compose logs backend
+docker-compose -f docker-compose.prod.yml logs mysql
+docker-compose -f docker-compose.prod.yml logs backend
 ```
 
 **問題：無法連接數據庫**
-- 確認 MySQL 容器正常運行：`docker-compose ps`
+- 確認 MySQL 容器正常運行：`docker-compose -f docker-compose.prod.yml ps`
 - 檢查 `.env` 中的 `MYSQL_PASSWORD` 是否正確
 
 ## 📞 支持

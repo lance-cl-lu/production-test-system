@@ -15,7 +15,7 @@ services:
     command: --default-authentication-plugin=mysql_native_password
 
   backend:
-    build: ./backend
+    image: ghcr.io/lance-cl-lu/production-test-system/backend:latest
     container_name: production_test_backend
     restart: always
     ports:
@@ -26,31 +26,22 @@ services:
     depends_on:
       - mysql
     volumes:
-      - ./backend:/app
       - ./shared:/shared
-    stdin_open: true
-    tty: true
+      - test_data:/app/data
 
   frontend-smac:
-    build: ./frontend-smac
+    image: ghcr.io/lance-cl-lu/production-test-system/frontend-smac:latest
     container_name: production_test_frontend_smac
     restart: always
     ports:
       - "${FRONTEND_SMAC_PORT:-3000}:3000"
     environment:
       REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHPACK_POLLING: "true"
     depends_on:
       - backend
-    volumes:
-      - ./frontend-smac/src:/app/src
-      - ./frontend-smac/public:/app/public
-    stdin_open: true
-    tty: true
 
   frontend-nl:
-    build: ./frontend-nl
+    image: ghcr.io/lance-cl-lu/production-test-system/frontend-nl:latest
     container_name: production_test_frontend_nl
     restart: always
     ports:
@@ -58,15 +49,9 @@ services:
     environment:
       PORT: 3001
       REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHPACK_POLLING: "true"
     depends_on:
       - backend
-    volumes:
-      - ./frontend-nl/src:/app/src
-      - ./frontend-nl/public:/app/public
-    stdin_open: true
-    tty: true
 
 volumes:
   mysql_data:
+  test_data:
