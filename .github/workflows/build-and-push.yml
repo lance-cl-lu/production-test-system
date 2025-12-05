@@ -1,0 +1,82 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'frontend-smac/**'
+      - 'frontend-nl/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/build-and-push.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build and push backend
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push frontend-smac
+      - name: Build and push frontend-smac image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend-smac
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend-smac:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend-smac:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push frontend-nl
+      - name: Build and push frontend-nl image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend-nl
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend-nl:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend-nl:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create deployment summary
+        run: |
+          echo "## Docker Images pushed to GHCR" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend-SMAC:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend-smac:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend-NL:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend-nl:latest\`" >> $GITHUB_STEP_SUMMARY

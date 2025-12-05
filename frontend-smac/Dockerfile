@@ -1,20 +1,22 @@
-# 使用官方 Node.js 映像（支援 arm64）
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine as builder
 
-# 設定工作目錄
 WORKDIR /app
 
-# 複製 package.json 和 package-lock.json
 COPY package*.json ./
+RUN npm ci --only=production
 
-# 安裝依賴
-RUN npm install
+# Runtime stage
+FROM node:18-alpine
 
-# 複製所有原始碼
-COPY . .
+WORKDIR /app
 
-# 暴露前端埠
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+
+COPY public ./public
+COPY src ./src
+
 EXPOSE 3000
 
-# 啟動開發伺服器
 CMD ["npm", "start"]

@@ -4,65 +4,54 @@ services:
     container_name: production_test_db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: production_test
-      MYSQL_USER: testuser
-      MYSQL_PASSWORD: testpassword
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-production_test}
+      MYSQL_USER: ${MYSQL_USER:-testuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-testpassword}
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password
 
   backend:
-    build: ./backend
+    image: ghcr.io/lance-cl-lu/production-test-system/backend:latest
     container_name: production_test_backend
     restart: always
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     environment:
-      DATABASE_URL: mysql+pymysql://testuser:testpassword@mysql:3306/production_test
-      CLOUD_UPLOAD_ENABLED: "false"
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-testuser}:${MYSQL_PASSWORD:-testpassword}@mysql:3306/${MYSQL_DATABASE:-production_test}
+      CLOUD_UPLOAD_ENABLED: ${CLOUD_UPLOAD_ENABLED:-false}
     depends_on:
       - mysql
     volumes:
-      - ./backend:/app
       - ./shared:/shared
+      - test_data:/app/data
 
   frontend-smac:
-    build: ./frontend-smac
+    image: ghcr.io/lance-cl-lu/production-test-system/frontend-smac:latest
     container_name: production_test_frontend_smac
     restart: always
     ports:
-      - "3000:3000"
+      - "${FRONTEND_SMAC_PORT:-3000}:3000"
     environment:
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
     depends_on:
       - backend
-    volumes:
-      - ./frontend-smac/src:/app/src
-      - ./frontend-smac/public:/app/public
-    stdin_open: true
-    tty: true
 
   frontend-nl:
-    build: ./frontend-nl
+    image: ghcr.io/lance-cl-lu/production-test-system/frontend-nl:latest
     container_name: production_test_frontend_nl
     restart: always
     ports:
-      - "3001:3001"
+      - "${FRONTEND_NL_PORT:-3001}:3001"
     environment:
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
-      - PORT=3001
+      PORT: 3001
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
     depends_on:
       - backend
-    volumes:
-      - ./frontend-nl/src:/app/src
-      - ./frontend-nl/public:/app/public
-    stdin_open: true
-    tty: true
 
 volumes:
   mysql_data:
+  test_data:
