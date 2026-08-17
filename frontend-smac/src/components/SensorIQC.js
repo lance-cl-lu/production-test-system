@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Row, Col, Tag, message, Input, Space, Typography } from 'antd';
 import { 
   PlayCircleOutlined, 
@@ -6,7 +6,7 @@ import {
   CloseCircleOutlined,
   LoadingOutlined,
 } from '@ant-design/icons';
-import { translations } from '../i18n/locales';
+import { translations, i18n } from '../i18n/locales';
 import { testRecordsAPI } from '../services/api';
 
 const { Title, Text } = Typography;
@@ -14,7 +14,7 @@ const { Title, Text } = Typography;
 const SensorIQC = ({ language = 'zh-TW' }) => {
   const t = translations[language];
   
-  const [serialNumber, setSerialNumber] = useState('');
+  const [serialNumber, setSerialNumber] = useState(''); // 用戶輸入或自動產生的 SN
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState({
     getUUID: null,
@@ -26,6 +26,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     testLED: null,
   });
   const [testData, setTestData] = useState({
+    // 用於顯示從後端收到的具體數值
     uuid: '',
     humidity: 0,
     temperature: 0,
@@ -60,63 +61,85 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     });
   };
 
-  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  // 監聽 WebSocket 事件
+  useEffect(() => {
+    const wsUrl = process.env.REACT_APP_WS_URL || `ws://${window.location.hostname}:8000/ws`;
+    const ws = new WebSocket(wsUrl);
 
-  const simulateTest = async (testKey) => {
-    // 模擬測試延遲
-    await delay(800 + Math.random() * 1200);
-    
-    // 模擬測試結果 (95% 成功率，讓大部分測試都能顯示數據)
-    const passed = Math.random() > 0.05;
-    
-    // 產生測試數據
-    switch (testKey) {
-      case 'getUUID':
-        const uuid = 'UUID-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-        setTestData(prev => ({ ...prev, uuid }));
-        break;
-      case 'getHumidity':
-        const humidity = (40 + Math.random() * 20).toFixed(1);
-        setTestData(prev => ({ ...prev, humidity }));
-        break;
-      case 'getTemperature':
-        const temperature = (20 + Math.random() * 10).toFixed(1);
-        setTestData(prev => ({ ...prev, temperature }));
-        break;
-      case 'getPressure':
-        const pressure = (1000 + Math.random() * 50).toFixed(1);
-        setTestData(prev => ({ ...prev, pressure }));
-        break;
-      default:
-        break;
-    }
-    
-    return passed;
-  };
+    ws.onopen = () => {
+      console.log('SensorIQC WebSocket connected');
+    };
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+
+      // 只處理 sensor_event 類型的事件
+      if (message.type === 'sensor_event') {
+        const { serial, stage, status, detail } = message.data;
+
+        // 只更新當前測試的 SN
+        if (serial === serialNumber) {
+          setTestResults(prev => ({ ...prev, [stage]: status }));
+
+          if (detail) {
+            setTestData(prev => ({ ...prev, ...detail }));
+          }
+
+          // 檢查所有測試是否完成
+          const newResults = { ...testResults, [stage]: status };
+          const allStages = testItems.map(item => item.key);
+          const isFinished = allStages.every(s => newResults[s] === 'pass' || newResults[s] === 'fail');
+
+          if (isFinished) {
+            setTesting(false);
+            const allPassed = allStages.every(s => newResults[s] === 'pass');
+            if (allPassed) {
+              message.success(t.sensorIQC.testPassed);
+            } else {
+              message.error(t.sensorIQC.testFailed);
+            }
+            // 測試結束後自動保存結果
+            saveTestRecord(serial, newResults, { ...testData, ...detail });
+          }
+        }
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('SensorIQC WebSocket disconnected');
+    };
+
+    // 組件卸載時關閉 WebSocket
+    return () => {
+      ws.close();
+    };
+  }, [serialNumber, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
 
   const startTest = async () => {
     // 如果沒有輸入序號，自動生成一個
     const sn = serialNumber.trim() || `SN-${Date.now()}`;
     setSerialNumber(sn);
 
-    setTesting(true);
     resetTest();
+    setTesting(true);
     message.info(t.sensorIQC.testStarted);
 
-    let allPassed = true;
-
-    // 依序執行測試
-    for (const item of testItems) {
-      setTestResults(prev => ({ ...prev, [item.key]: 'testing' }));
-      const passed = await simulateTest(item.key);
-      setTestResults(prev => ({ ...prev, [item.key]: passed ? 'pass' : 'fail' }));
-      
-      if (!passed) {
-        allPassed = false;
-      }
+    try {
+      // 呼叫後端 API 來啟動測試
+      await testRecordsAPI.startSensorTest({ serial: sn });
+    } catch (error) {
+      console.error('Failed to start sensor test:', error);
+      message.error(t.sensorIQC.startFailed || 'Failed to start test');
+      setTesting(false);
     }
+  };
 
-    setTesting(false);
+  // 將保存記錄的邏輯提取為獨立函式
+  const saveTestRecord = async (sn, currentResults, currentData) => {
+    let allPassed = true;
+    Object.values(currentResults).forEach(result => {
+      if (result !== 'pass') allPassed = false;
+    });
 
     // 保存測試結果到資料庫
     try {
@@ -128,22 +151,17 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         serial_number: sn,
         test_station: 'Sensor IQC',
         test_result: finalResult,
-        test_time: new Date().toISOString(),
-        temperature: parseFloat(testData.temperature) || null,
+        test_time: new Date().toISOString(), // 使用 ISO 格式
+        temperature: parseFloat(currentData.temperature) || null,
         test_data: JSON.stringify({
-          uuid: testData.uuid,
-          humidity: testData.humidity,
-          temperature: testData.temperature,
-          pressure: testData.pressure,
-          test_items: testResults,
+          uuid: currentData.uuid,
+          humidity: currentData.humidity,
+          temperature: currentData.temperature,
+          pressure: currentData.pressure,
+          test_items: currentResults,
         }),
       });
-
-      if (allPassed) {
-        message.success(t.sensorIQC.testPassed);
-      } else {
-        message.error(t.sensorIQC.testFailed);
-      }
+      message.success(t.sensorIQC.saveSuccess || 'Test record saved');
     } catch (error) {
       console.error('Failed to save test record:', error);
       message.error(t.sensorIQC.saveFailed);
@@ -186,6 +204,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             <Text type="secondary">{t.sensorIQC.description}</Text>
           </div>
 
+          <Input
+            placeholder={t.sensorIQC.enterSerialNumber}
+            value={serialNumber}
+            onChange={(e) => setSerialNumber(e.target.value)}
+            style={{ width: 300 }}
+          />
           <Button
             type="primary"
             size="large"

@@ -58,24 +58,9 @@ function App() {
       label: t.dashboard,
     },
     {
-      key: 'gateway-iqc',
-      icon: <ApiOutlined />,
-      label: t.gatewayIQCMenu,
-    },
-    {
       key: 'sensor-iqc',
       icon: <RadarChartOutlined />,
       label: t.sensorIQCMenu,
-    },
-    {
-      key: 'mac-uid',
-      icon: <BarcodeOutlined />,
-      label: t.macUID,
-    },
-    {
-      key: 'final-test',
-      icon: <CheckCircleOutlined />,
-      label: t.finalTestMenu,
     },
     {
       key: 'records',
