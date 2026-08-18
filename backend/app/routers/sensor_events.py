@@ -34,6 +34,64 @@ class StartTestRequest(BaseModel):
     serial: str
 
 
+class SerialFoundRequest(BaseModel):
+    serial_wle: str
+    serial_wba: Optional[str] = None
+
+
+@router.post("/read-serial")
+async def read_sensor_serial():
+    """
+    請 sensor_watcher 從裝置讀取序號：寫入 SEARCH 指令到共享檔案。
+    結果由 watcher POST 回 /serial-found，再廣播給前端。
+    """
+    logger.info("[Sensor:/read-serial] Read serial request received")
+
+    try:
+        with open(SHARED_FILE_PATH, "w") as f:
+            f.write(f"SEARCH\n{datetime.now().isoformat()}\n")
+
+        logger.info(f"[Sensor:/read-serial] Written SEARCH command to {SHARED_FILE_PATH}")
+
+        return {
+            "status": "searching",
+            "message": "Read serial request sent to sensor_watcher.",
+        }
+
+    except Exception as e:
+        logger.exception(f"[Sensor:/read-serial] Failed to write search command: {e}")
+        raise HTTPException(status_code=500, detail="Failed to trigger serial read")
+
+
+@router.post("/serial-found")
+async def sensor_serial_found(request: SerialFoundRequest):
+    """
+    sensor_watcher 回報從裝置讀到的 WLE / WBA 序號，廣播給前端自動填入。
+    """
+    serial_wle = (request.serial_wle or "").strip()
+    serial_wba = (request.serial_wba or "").strip()
+
+    if not serial_wle:
+        raise HTTPException(status_code=400, detail="serial_wle is required")
+
+    logger.info(
+        f"[Sensor:/serial-found] Received serials: WLE={serial_wle} WBA={serial_wba}"
+    )
+
+    try:
+        await manager.broadcast({
+            "type": "sensor_serial_found",
+            "data": {"serial_wle": serial_wle, "serial_wba": serial_wba},
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        return {"status": "accepted", "serial_wle": serial_wle, "serial_wba": serial_wba}
+
+    except Exception as e:
+        logger.exception(f"[Sensor:/serial-found] Failed to broadcast serials: {e}")
+        raise HTTPException(status_code=500, detail="Failed to broadcast serials")
+
+
 @router.post("/start-test")
 async def start_sensor_test(request: StartTestRequest):
     """

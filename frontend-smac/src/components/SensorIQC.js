@@ -1,21 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, Button, Row, Col, Tag, message, Input, Space, Typography } from 'antd';
 import { 
   PlayCircleOutlined, 
   CheckCircleOutlined, 
   CloseCircleOutlined,
   LoadingOutlined,
+  ScanOutlined,
 } from '@ant-design/icons';
 import { translations, i18n } from '../i18n/locales';
 import { testRecordsAPI } from '../services/api';
 
 const { Title, Text } = Typography;
 
+// 讀取序號的提示訊息共用同一個 key，後續訊息會就地取代它而非另開一則
+const READ_SERIAL_MSG_KEY = 'sensor-read-serial';
+const READ_SERIAL_TIMEOUT_MS = 30000;
+
 const SensorIQC = ({ language = 'zh-TW' }) => {
   const t = translations[language];
   
-  const [serialNumber, setSerialNumber] = useState(''); // 用戶輸入或自動產生的 SN
+  const [serialWle, setSerialWle] = useState('');
+  const [serialWba, setSerialWba] = useState('');
   const [testing, setTesting] = useState(false);
+  const [readingSerial, setReadingSerial] = useState(false);
+  const readTimeoutRef = useRef(null);
   const [testResults, setTestResults] = useState({
     getUUID: null,
     getHumidity: null,
@@ -73,12 +81,26 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     ws.onmessage = (event) => {
       const payload = JSON.parse(event.data);
 
+      // watcher 讀到兩組序號後自動填入
+      if (payload.type === 'sensor_serial_found') {
+        clearTimeout(readTimeoutRef.current);
+        setSerialWle(payload.data.serial_wle);
+        setSerialWba(payload.data.serial_wba || '');
+        setReadingSerial(false);
+        message.success({
+          content: `WLE: ${payload.data.serial_wle}`,
+          key: READ_SERIAL_MSG_KEY,
+          duration: 3,
+        });
+        return;
+      }
+
       // 只處理 sensor_event 類型的事件
       if (payload.type === 'sensor_event') {
         const { serial, stage, status, detail } = payload.data;
 
         // 只更新當前測試的 SN
-        if (serial === serialNumber) {
+        if (serial === serialWle) {
           setTestResults(prev => ({ ...prev, [stage]: status }));
 
           if (detail) {
@@ -113,12 +135,47 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     return () => {
       ws.close();
     };
-  }, [serialNumber, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
+  }, [serialWle, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
+
+  const handleReadSerial = async () => {
+    setSerialWle('');
+    setSerialWba('');
+    setReadingSerial(true);
+    // duration 0 讓提示一直顯示，直到相同 key 的訊息把它換掉
+    message.loading({
+      content: t.sensorIQC.readingSerial,
+      key: READ_SERIAL_MSG_KEY,
+      duration: 0,
+    });
+
+    clearTimeout(readTimeoutRef.current);
+    readTimeoutRef.current = setTimeout(() => {
+      setReadingSerial(false);
+      message.warning({
+        content: t.sensorIQC.readSerialTimeout,
+        key: READ_SERIAL_MSG_KEY,
+        duration: 3,
+      });
+    }, READ_SERIAL_TIMEOUT_MS);
+
+    try {
+      await testRecordsAPI.readSensorSerial();
+    } catch (error) {
+      console.error('Failed to read serial:', error);
+      clearTimeout(readTimeoutRef.current);
+      message.error({
+        content: t.sensorIQC.readSerialFailed,
+        key: READ_SERIAL_MSG_KEY,
+        duration: 3,
+      });
+      setReadingSerial(false);
+    }
+  };
 
   const startTest = async () => {
     // 如果沒有輸入序號，自動生成一個
-    const sn = serialNumber.trim() || `SN-${Date.now()}`;
-    setSerialNumber(sn);
+    const sn = serialWle.trim() || `SN-${Date.now()}`;
+    setSerialWle(sn);
 
     resetTest();
     setTesting(true);
@@ -154,6 +211,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         test_time: new Date().toISOString(), // 使用 ISO 格式
         temperature: parseFloat(currentData.temperature) || null,
         test_data: JSON.stringify({
+          serial_wba: serialWba,
           uuid: currentData.uuid,
           humidity: currentData.humidity,
           temperature: currentData.temperature,
@@ -204,12 +262,31 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             <Text type="secondary">{t.sensorIQC.description}</Text>
           </div>
 
-          <Input
-            placeholder={t.sensorIQC.enterSerialNumber}
-            value={serialNumber}
-            onChange={(e) => setSerialNumber(e.target.value)}
-            style={{ width: 300 }}
-          />
+          <Space direction="vertical" size="small">
+            <Space.Compact style={{ width: 480 }}>
+              <Input
+                addonBefore="WLE"
+                placeholder={t.sensorIQC.enterSerialNumber}
+                value={serialWle}
+                onChange={(e) => setSerialWle(e.target.value)}
+              />
+              <Button
+                icon={<ScanOutlined />}
+                onClick={handleReadSerial}
+                loading={readingSerial}
+                disabled={testing}
+              >
+                {t.sensorIQC.readSerial}
+              </Button>
+            </Space.Compact>
+            <Input
+              addonBefore="WBA"
+              placeholder={t.sensorIQC.enterSerialNumber}
+              value={serialWba}
+              onChange={(e) => setSerialWba(e.target.value)}
+              style={{ width: 480 }}
+            />
+          </Space>
           <Button
             type="primary"
             size="large"

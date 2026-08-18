@@ -1,0 +1,26 @@
+/*
+ * uart_hvf.h
+ *
+ * HVF 裝置的 UART 存取層，從 uart_hvf_probe.c 抽出供常駐程式使用。
+ * 與 probe 不同之處：port 由呼叫端開啟並持有，不會每個指令重開一次。
+ */
+
+#ifndef UART_HVF_H
+#define UART_HVF_H
+
+#include <stddef.h>
+
+#define UART_HVF_DEFAULT_PORT "/dev/tty.usbserial-0001"
+
+void uart_hvf_set_debug(int enabled);
+
+// 成功回傳 fd，失敗回 -1
+int uart_hvf_open(const char *port);
+void uart_hvf_close(int fd);
+
+// 讀取 STM32 unique device ID
+// passthrough = 0 讀 WLE；= 1 進 passthrough 讀 WBA
+// 成功回 0，失敗回 -1
+int uart_hvf_read_stm32_id(int fd, int passthrough, char *out, size_t out_len);
+
+#endif  // UART_HVF_H

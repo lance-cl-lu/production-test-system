@@ -14,7 +14,7 @@ endif
 
 LDFLAGS += -lcurl
 
-TARGETS := pcba_watcher sensor_watcher
+TARGETS := pcba_watcher sensor_watcher uart_hvf_probe
 
 .PHONY: all clean run run-sensor
 
@@ -23,8 +23,11 @@ all: $(TARGETS)
 pcba_watcher: pcba_watcher.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-sensor_watcher: sensor_watcher.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+sensor_watcher: sensor_watcher.c uart_hvf.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+uart_hvf_probe: uart_hvf_probe.c
+	$(CC) $(CFLAGS) -o $@ $<
 
 run: pcba_watcher
 	./pcba_watcher

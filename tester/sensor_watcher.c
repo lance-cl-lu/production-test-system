@@ -1,17 +1,21 @@
 /*
  * sensor_watcher.c
  *
- * Sensor IQC 測試監看程式（模擬版，尚未接 UART）
+ * Sensor IQC 測試監看程式
+ *
+ * 序號讀取已串接 UART（7 個測試階段仍為模擬）
+ * serial port 在啟動時開一次並常駐，避免反覆開關 tty 造成裝置重置
  *
  * 編譯：make sensor_watcher
- * 執行：cd tester && ./sensor_watcher
+ * 執行：cd tester && ./sensor_watcher [--port /dev/ttyX] [--debug]
  *
  * 流程：
- *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "TEST <SERIAL>"
- *   2. 依序跑 7 個測試階段，每階段先回報 testing 再回報 pass/fail
+ *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "SEARCH" 或 "TEST <SERIAL>"
+ *   2. SEARCH 讀取 WLE / WBA 兩組序號；TEST 依序跑 7 個測試階段
  *   3. 結果以 HTTP POST 送到後端，再由後端 WebSocket 廣播給前端
  */
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,12 +24,23 @@
 #include <sys/stat.h>
 #include <curl/curl.h>
 
+#include "uart_hvf.h"
+
 #define SHARED_FILE "../shared/sensor_test.txt"
 #define API_EVENTS_URL "http://localhost:8000/api/sensor/events"
+#define API_SERIAL_FOUND_URL "http://localhost:8000/api/sensor/serial-found"
 #define CHECK_INTERVAL 1
 
 // 設為 1.0 讓模擬全數通過，先確認管線；之後可調低來測 FAIL 顯示
 #define PASS_RATIO 1.0
+
+static int uart_fd = -1;
+static volatile sig_atomic_t keep_running = 1;
+
+static void handle_signal(int signum) {
+    (void)signum;
+    keep_running = 0;
+}
 
 const char *stages[] = {
     "getUUID", "getHumidity", "getTemperature",
@@ -128,6 +143,37 @@ void run_test_stage(const char *stage, const char *serial) {
     printf("%s  {%s}\n", status, detail);
 }
 
+// 依序讀取 WLE 與 WBA 兩組序號，一併回報給後端
+void handle_search_command(void) {
+    char serial_wle[128];
+    char serial_wba[128];
+    char payload[384];
+
+    printf("\n[SEARCH] Reading serials from device...\n");
+
+    if (uart_hvf_read_stm32_id(uart_fd, 0, serial_wle, sizeof(serial_wle)) != 0) {
+        printf("[SEARCH] Failed to read WLE serial\n\n");
+        return;
+    }
+    printf("[SEARCH] WLE = %s\n", serial_wle);
+
+    if (uart_hvf_read_stm32_id(uart_fd, 1, serial_wba, sizeof(serial_wba)) != 0) {
+        printf("[SEARCH] Failed to read WBA serial\n\n");
+        return;
+    }
+    printf("[SEARCH] WBA = %s\n", serial_wba);
+
+    snprintf(payload, sizeof(payload),
+             "{\"serial_wle\":\"%s\",\"serial_wba\":\"%s\"}",
+             serial_wle, serial_wba);
+
+    if (post_json(API_SERIAL_FOUND_URL, payload) == 0) {
+        printf("[SEARCH] Sent to backend\n\n");
+    } else {
+        printf("[SEARCH] Failed to send serials\n\n");
+    }
+}
+
 void handle_test_command(const char *serial) {
     printf("\n========================================\n");
     printf("[TEST] Starting sensor test: %s\n", serial);
@@ -155,30 +201,66 @@ void process_command(const char *line) {
 
     if (sscanf(clean_line, "TEST %127s", serial) == 1) {
         handle_test_command(serial);
+    } else if (strncmp(clean_line, "SEARCH", 6) == 0) {
+        handle_search_command();
     } else {
         printf("[WARN] Unrecognized command: %s\n", clean_line);
     }
 }
 
-int main(void) {
+static void print_usage(const char *prog) {
+    fprintf(stderr, "usage: %s [--port /dev/ttyX] [--debug]\n", prog);
+    fprintf(stderr, "  --port   serial port (default: %s)\n", UART_HVF_DEFAULT_PORT);
+}
+
+int main(int argc, char **argv) {
+    const char *port = UART_HVF_DEFAULT_PORT;
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+            port = argv[++i];
+        } else if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0) {
+            uart_hvf_set_debug(1);
+        } else {
+            print_usage(argv[0]);
+            return 2;
+        }
+    }
+
     srand((unsigned int)time(NULL));
+
+    setvbuf(stdout, NULL, _IOLBF, 0);  // 輸出導向檔案時仍即時可見
 
     struct stat st_old = {0}, st_new;
     char line[256];
 
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    uart_fd = uart_hvf_open(port);
+    if (uart_fd < 0) {
+        fprintf(stderr, "Failed to open serial port: %s\n", port);
+        return 1;
+    }
+
     curl_global_init(CURL_GLOBAL_ALL);
 
     printf("========================================\n");
-    printf("Sensor IQC 監看程式（模擬模式）\n");
+    printf("Sensor IQC 監看程式\n");
     printf("========================================\n");
+    printf("Serial port: %s\n", port);
     printf("監看檔案: %s\n", SHARED_FILE);
     printf("事件 API : %s\n", API_EVENTS_URL);
-    printf("等待指令 (TEST <SERIAL>)...\n\n");
+    printf("等待指令 (SEARCH / TEST <SERIAL>)... Ctrl-C 結束\n\n");
 
     stat(SHARED_FILE, &st_old);
 
-    while (1) {
+    while (keep_running) {
         sleep(CHECK_INTERVAL);
+
+        if (!keep_running) {
+            break;
+        }
 
         if (stat(SHARED_FILE, &st_new) != 0) {
             continue;
@@ -212,6 +294,8 @@ int main(void) {
         }
     }
 
+    printf("\nShutting down...\n");
+    uart_hvf_close(uart_fd);
     curl_global_cleanup();
     return 0;
 }

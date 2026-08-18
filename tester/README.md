@@ -8,6 +8,8 @@
 
 - **tester.py**：Python 測試腳本（批次測試與連續測試）
 - **pcba_watcher.c**：整合 UID 搜尋與測試流程的監看程式（詳見 `README_WATCHER.md`）
+- **sensor_watcher.c**：Sensor IQC 監看程式（讀序號已接實際裝置，測試階段仍為模擬）
+- **uart_hvf_probe**：UART 探測工具，以 JSON 回報結果
 - **trigger_pcba.sh**：一鍵觸發 PCBA 測試的 Shell 腳本
 - **Makefile**：編譯 C 程式工具
 
@@ -120,3 +122,167 @@ python tester.py continuous 3
 - `API_URL`: FastAPI 後端 API 網址
 - `DEVICE_ID`: 測試設備 ID
 - `TEST_STATION`: 測試站別名稱
+
+---
+
+## sensor_watcher（Sensor IQC）
+
+### 編譯與執行
+
+```bash
+cd tester
+make sensor_watcher
+./sensor_watcher
+```
+
+> 必須在 `tester/` 目錄下執行，程式以相對路徑 `../shared/sensor_test.txt` 監看指令。
+
+### 整體架構
+
+後端不會直接啟動 watcher，兩者透過【共享檔案】與【HTTP 回報】解耦：
+
+```mermaid
+flowchart LR
+    FE["Frontend :3000"]
+    BE["Backend :8000<br/>(container)"]
+    F["shared/sensor_test.txt<br/>(volume mount)"]
+    W["sensor_watcher<br/>(macOS host)"]
+
+    FE -->|POST /api/sensor/*| BE
+    BE -->|寫入指令| F
+    F -.->|每秒輪詢 mtime| W
+    W -->|POST 回報結果| BE
+    BE -.->|WebSocket 廣播| FE
+```
+
+下行（觸發）走檔案，上行（回報）走 HTTP。watcher 跑在 host 而非容器內，才能直接存取 `/dev/tty.usb*`。
+
+### 流程一：讀取序號
+
+```mermaid
+sequenceDiagram
+    participant FE as SensorIQC
+    participant BE as Backend
+    participant F as sensor_test.txt
+    participant W as sensor_watcher
+
+    FE->>BE: POST /api/sensor/read-serial
+    BE->>F: 寫入 "SEARCH"
+    W->>F: 偵測到指令，讀取後清空
+    W->>W: ./uart_hvf_probe --test stm32_id_info
+    W->>BE: POST /api/sensor/serial-found {serial}
+    BE-->>FE: WS {type:"sensor_serial_found"}
+    FE->>FE: 自動填入輸入框
+```
+
+### 流程二：執行測試
+
+```mermaid
+sequenceDiagram
+    participant FE as SensorIQC
+    participant BE as Backend
+    participant F as sensor_test.txt
+    participant W as sensor_watcher
+
+    FE->>BE: POST /api/sensor/start-test {serial}
+    BE->>F: 寫入 "TEST <serial>"
+    BE-->>FE: 200 {status:"triggered"}
+    W->>F: 偵測到指令，讀取後清空
+    loop 7 個測試階段
+        W->>BE: POST /api/sensor/events {status:"testing"}
+        BE-->>FE: WS 廣播
+        W->>BE: POST /api/sensor/events {status:"pass"|"fail"}
+        BE-->>FE: WS 廣播
+    end
+    FE->>BE: POST /api/test-records/ 儲存結果
+```
+
+### 觸發檔案格式（sensor_test.txt）
+
+第一行為指令，第二行為時間戳（目前未使用）：
+
+```
+TEST SN-1787021410029
+2026-08-18T15:30:10.029123
+```
+
+```
+SEARCH
+2026-08-18T15:30:10.029123
+```
+
+watcher 讀取後會立即清空檔案，避免重複觸發。因此直接 `cat shared/sensor_test.txt` 通常看到空內容是正常的。
+
+### 手動測試
+
+不經過前端，直接觸發 watcher：
+
+```bash
+echo "TEST SN-MANUAL-001" > ../shared/sensor_test.txt
+echo "SEARCH" > ../shared/sensor_test.txt
+```
+
+不經過 watcher，直接驗證後端與前端：
+
+```bash
+curl -X POST http://localhost:8000/api/sensor/events \
+  -H 'Content-Type: application/json' \
+  -d '{"serial":"SN-MANUAL-001","stage":"getUUID","status":"pass","detail":{"uuid":"ABC123"}}'
+```
+
+> 前端有 `serial === serialNumber` 的過濾，SN 對不上會被靜默丟棄。
+
+### 測試階段與回報格式
+
+`stage` 必須是下列七者之一，`status` 只能是 `pending` / `testing` / `pass` / `fail`，否則後端回 422：
+
+| stage | detail key | 前端顯示 |
+|---|---|---|
+| `getUUID` | `uuid` | ✓ |
+| `getHumidity` | `humidity` | ✓ |
+| `getTemperature` | `temperature` | ✓ |
+| `getPressure` | `pressure` | ✓ |
+| `testLeak` | `leak_rate` | – |
+| `testButton` | `press_count` | – |
+| `testLED` | `lux` | – |
+
+### 接入真實 UART
+
+讀取序號已串接 `uart_hvf_probe`：
+
+```bash
+./uart_hvf_probe --port /dev/tty.usbserial-0001 --test stm32_id_info
+```
+
+```json
+{"test":"stm32_id_info","ok":true,"prompt_seen":true,"data":{"unique_stm32mba_device_id":"203930573546500300250015"}}
+```
+
+watcher 以 `popen()` 執行該指令，檢查 `ok` 後從 `data` 取出 `unique_stm32mba_device_id` 作為序號。
+
+尚待接入的是測試階段：`run_test_stage()` 裡的 `sleep(1)` 與 `rand()` 換成實際 UART 交握即可，其餘骨架（輪詢、POST、JSON 組裝）不用動。
+
+> 建議在 `main()` 開一次 serial port 並常駐，不要每個 stage 重開 —— 連續開關 tty 會讓很多裝置重置。
+
+### 設定
+
+| 常數 | 說明 |
+|---|---|
+| `PROBE_PORT` | serial port，目前寫死 `/dev/tty.usbserial-0001` |
+| `PROBE_SERIAL_TEST` | 讀序號的 test 名稱 |
+| `PROBE_SERIAL_FIELD` | 從 `data` 取出的欄位名 |
+| `PASS_RATIO` | 設為 `1.0` 讓模擬全數通過；調低可測試 FAIL 顯示 |
+| `SHARED_FILE` | 監看的指令檔路徑 |
+| `API_EVENTS_URL` | 測試事件回報端點 |
+| `API_SERIAL_FOUND_URL` | 序號回報端點 |
+
+### 疑難排解
+
+| 症狀 | 原因 |
+|---|---|
+| watcher 完全沒反應 | 未在 `tester/` 目錄下執行，相對路徑對不上 |
+| `Probe reported ok=false` | 裝置未連接、port 錯誤或裝置未就緒 |
+| `POST rejected by backend: HTTP 422` | `stage` 或 `status` 拼錯 |
+| `POST failed: Connection refused` | 後端未啟動 |
+| watcher 有跡、前端無反應 | serial 對不上，或 WebSocket 未連線 |
+
