@@ -277,6 +277,13 @@ void uart_hvf_close(int fd) {
     }
 }
 
+void uart_hvf_flush_input(int fd, int idle_ms) {
+    tcflush(fd, TCIFLUSH);  // 先丟掉 kernel 已緩衝的位元組
+    (void)drain_until_idle(fd, idle_ms);
+    tcflush(fd, TCIFLUSH);
+    debug_print("[debug] input flushed (idle %d ms)\n", idle_ms);
+}
+
 static int read_stm32_id_direct(int fd, char *out, size_t out_len) {
     char after_enter[256];
     char response[1024];

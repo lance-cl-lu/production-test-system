@@ -18,6 +18,9 @@ void uart_hvf_set_debug(int enabled);
 int uart_hvf_open(const char *port);
 void uart_hvf_close(int fd);
 
+// 丟棄累積的輸入（例如換板子時的開機訊息），等到連續 idle_ms 無資料為止
+void uart_hvf_flush_input(int fd, int idle_ms);
+
 // 讀取 STM32 unique device ID
 // passthrough = 0 讀 WLE；= 1 進 passthrough 讀 WBA
 // 成功回 0，失敗回 -1

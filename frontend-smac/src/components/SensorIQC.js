@@ -22,6 +22,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [serialWle, setSerialWle] = useState('');
   const [serialWba, setSerialWba] = useState('');
   const [testing, setTesting] = useState(false);
+  const [runningStage, setRunningStage] = useState(null);
   const [readingSerial, setReadingSerial] = useState(false);
   const readTimeoutRef = useRef(null);
   const [testResults, setTestResults] = useState({
@@ -103,6 +104,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         if (serial === serialWle) {
           setTestResults(prev => ({ ...prev, [stage]: status }));
 
+          if (status === 'pass' || status === 'fail') {
+            setRunningStage(prev => (prev === stage ? null : prev));
+          }
+
           if (detail) {
             setTestData(prev => ({ ...prev, ...detail }));
           }
@@ -172,10 +177,26 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     }
   };
 
+  const runSingleStage = async (stageKey) => {
+    const sn = serialWle.trim();
+    if (!sn) return;
+
+    setRunningStage(stageKey);
+    setTestResults(prev => ({ ...prev, [stageKey]: 'testing' }));
+
+    try {
+      await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
+    } catch (error) {
+      console.error('Failed to run stage:', error);
+      message.error(t.sensorIQC.stageFailed);
+      setRunningStage(null);
+      setTestResults(prev => ({ ...prev, [stageKey]: null }));
+    }
+  };
+
   const startTest = async () => {
-    // 如果沒有輸入序號，自動生成一個
-    const sn = serialWle.trim() || `SN-${Date.now()}`;
-    setSerialWle(sn);
+    const sn = serialWle.trim();
+    if (!sn) return;
 
     resetTest();
     setTesting(true);
@@ -293,6 +314,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             icon={<PlayCircleOutlined />}
             onClick={startTest}
             loading={testing}
+            disabled={!serialWle.trim() || readingSerial || runningStage !== null}
           >
             {t.sensorIQC.startTest}
           </Button>
@@ -317,7 +339,17 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                     </Text>
                   </Col>
                   <Col span={6} style={{ textAlign: 'right' }}>
-                    {getResultTag(testResults[item.key])}
+                    {testResults[item.key] === null ? (
+                      <Button
+                        size="small"
+                        onClick={() => runSingleStage(item.key)}
+                        disabled={!serialWle.trim() || testing || runningStage !== null}
+                      >
+                        {t.sensorIQC.testSingle}
+                      </Button>
+                    ) : (
+                      getResultTag(testResults[item.key])
+                    )}
                   </Col>
                 </Row>
               </Card>

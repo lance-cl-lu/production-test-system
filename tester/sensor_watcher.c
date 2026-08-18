@@ -34,6 +34,9 @@
 // 設為 1.0 讓模擬全數通過，先確認管線；之後可調低來測 FAIL 顯示
 #define PASS_RATIO 1.0
 
+// 換板子後裝置的開機訊息可能斷續輸出，要求較長的靜默才視為吐完
+#define BOARD_SWAP_IDLE_MS 800
+
 static int uart_fd = -1;
 static volatile sig_atomic_t keep_running = 1;
 
@@ -149,7 +152,11 @@ void handle_search_command(void) {
     char serial_wba[128];
     char payload[384];
 
-    printf("\n[SEARCH] Reading serials from device...\n");
+    printf("\n[SEARCH] Flushing UART input...\n");
+    // 換板子時裝置會吐一段開機訊息，先清乾淨再下指令
+    uart_hvf_flush_input(uart_fd, BOARD_SWAP_IDLE_MS);
+
+    printf("[SEARCH] Reading serials from device...\n");
 
     if (uart_hvf_read_stm32_id(uart_fd, 0, serial_wle, sizeof(serial_wle)) != 0) {
         printf("[SEARCH] Failed to read WLE serial\n\n");
@@ -187,9 +194,19 @@ void handle_test_command(const char *serial) {
     printf("[TEST] Completed: %s\n\n", serial);
 }
 
+static int is_valid_stage(const char *stage) {
+    for (int i = 0; i < num_stages; i++) {
+        if (strcmp(stages[i], stage) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void process_command(const char *line) {
     char clean_line[256];
     char serial[128];
+    char stage[64];
 
     strncpy(clean_line, line, sizeof(clean_line) - 1);
     clean_line[sizeof(clean_line) - 1] = '\0';
@@ -199,7 +216,15 @@ void process_command(const char *line) {
         return;
     }
 
-    if (sscanf(clean_line, "TEST %127s", serial) == 1) {
+    if (sscanf(clean_line, "STAGE %63s %127s", stage, serial) == 2) {
+        if (!is_valid_stage(stage)) {
+            printf("[WARN] Unknown stage: %s\n", stage);
+            return;
+        }
+        printf("\n[STAGE] %s for %s\n", stage, serial);
+        run_test_stage(stage, serial);
+        printf("\n");
+    } else if (sscanf(clean_line, "TEST %127s", serial) == 1) {
         handle_test_command(serial);
     } else if (strncmp(clean_line, "SEARCH", 6) == 0) {
         handle_search_command();

@@ -12,18 +12,20 @@ logger = logging.getLogger("uvicorn.error") or logging.getLogger(__name__)
 # 和 pcba_events.py 類似的結構，但針對 Sensor
 SHARED_FILE_PATH = "../shared/sensor_test.txt"
 
+SensorStage = Literal[
+    "getUUID",
+    "getHumidity",
+    "getTemperature",
+    "getPressure",
+    "testLeak",
+    "testButton",
+    "testLED",
+]
+
 
 class SensorEvent(BaseModel):
     serial: str
-    stage: Literal[
-        "getUUID",
-        "getHumidity",
-        "getTemperature",
-        "getPressure",
-        "testLeak",
-        "testButton",
-        "testLED",
-    ]
+    stage: SensorStage
     status: Literal["pending", "testing", "pass", "fail"]
     progress: Optional[int] = Field(default=None, ge=0, le=100)
     detail: Optional[Dict[str, Any]] = None
@@ -37,6 +39,33 @@ class StartTestRequest(BaseModel):
 class SerialFoundRequest(BaseModel):
     serial_wle: str
     serial_wba: Optional[str] = None
+
+
+class RunStageRequest(BaseModel):
+    serial: str
+    stage: SensorStage
+
+
+@router.post("/run-stage")
+async def run_sensor_stage(request: RunStageRequest):
+    """
+    只執行單一測試階段，用於逐項驗證。
+    """
+    serial = (request.serial or "").strip()
+    if not serial:
+        raise HTTPException(status_code=400, detail="serial is required")
+
+    logger.info(f"[Sensor:/run-stage] {request.stage} for serial: {serial}")
+
+    try:
+        with open(SHARED_FILE_PATH, "w") as f:
+            f.write(f"STAGE {request.stage} {serial}\n{datetime.now().isoformat()}\n")
+
+        return {"status": "triggered", "serial": serial, "stage": request.stage}
+
+    except Exception as e:
+        logger.exception(f"[Sensor:/run-stage] Failed to write stage command: {e}")
+        raise HTTPException(status_code=500, detail="Failed to trigger stage")
 
 
 @router.post("/read-serial")
