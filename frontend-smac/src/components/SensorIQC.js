@@ -71,11 +71,11 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     };
 
     ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
+      const payload = JSON.parse(event.data);
 
       // 只處理 sensor_event 類型的事件
-      if (message.type === 'sensor_event') {
-        const { serial, stage, status, detail } = message.data;
+      if (payload.type === 'sensor_event') {
+        const { serial, stage, status, detail } = payload.data;
 
         // 只更新當前測試的 SN
         if (serial === serialNumber) {

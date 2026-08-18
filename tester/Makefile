@@ -1,29 +1,36 @@
 # Makefile for PCBA test tools
 
-# Detect Homebrew curl paths if available
+# brew --prefix 即使套件未安裝也會回傳路徑，所以要實際檢查目錄存在
 CURL_PREFIX := $(shell brew --prefix curl 2>/dev/null)
-CFLAGS := -O2 -Wall
-LDFLAGS := -lcurl
+CURL_LIBDIR := $(wildcard $(CURL_PREFIX)/lib)
 
-# If Homebrew curl is present, add include/lib paths
-ifeq ($(CURL_PREFIX),)
-  # No brew curl detected; rely on system paths
-else
+CFLAGS := -O2 -Wall
+LDFLAGS :=
+
+ifneq ($(CURL_LIBDIR),)
   CFLAGS += -I"$(CURL_PREFIX)/include"
-  LDFLAGS += -L"$(CURL_PREFIX)/lib"
+  LDFLAGS += -L"$(CURL_LIBDIR)"
 endif
 
-TARGET := pcba_watcher
+LDFLAGS += -lcurl
 
-.PHONY: all clean run
+TARGETS := pcba_watcher sensor_watcher
 
-all: $(TARGET)
+.PHONY: all clean run run-sensor
+
+all: $(TARGETS)
 
 pcba_watcher: pcba_watcher.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-run: $(TARGET)
-	./$(TARGET)
+sensor_watcher: sensor_watcher.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+run: pcba_watcher
+	./pcba_watcher
+
+run-sensor: sensor_watcher
+	./sensor_watcher
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGETS)

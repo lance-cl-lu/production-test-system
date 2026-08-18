@@ -38,6 +38,7 @@ export const testRecordsAPI = {
   create: (data) => api.post('/api/test-records/', data),
   update: (id, data) => api.put(`/api/test-records/${id}`, data),
   delete: (id) => api.delete(`/api/test-records/${id}`),
+  startSensorTest: (data) => api.post('/api/sensor/start-test', data),
 };
 
 // Health Check
