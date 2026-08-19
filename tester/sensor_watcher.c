@@ -51,12 +51,13 @@ const char *stages[] = {
     "getHumidity", "getTemperature",
     "getPressure", "testLeak", "testButton", "testLED", "testBuzzer", "testSPI",
 };
-const int num_stages = 7;
+const int num_stages = 13;
 
 static const char *pass_or_fail(double pass_ratio) {
     double r = (double)rand() / (double)RAND_MAX;
     return r < pass_ratio ? "pass" : "fail";
 }
+
 
 static void now_iso(char *buf, size_t len) {
     time_t t = time(NULL);
@@ -263,7 +264,9 @@ void handle_test_command(const char *serial) {
 
 static int is_valid_stage(const char *stage) {
     for (int i = 0; i < num_stages; i++) {
+        // printf("[DEBUG] stages[%d]='%s', stage='%s'\n", i, stages[i], stage);
         if (strcmp(stages[i], stage) == 0) {
+
             return 1;
         }
     }
