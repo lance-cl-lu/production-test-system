@@ -25,6 +25,7 @@
 #include <curl/curl.h>
 
 #include "uart_hvf.h"
+#include "uart_hvf_sensors.h"
 
 #define SHARED_FILE "../shared/sensor_test.txt"
 #define API_EVENTS_URL "http://localhost:8000/api/sensor/events"
@@ -46,8 +47,9 @@ static void handle_signal(int signum) {
 }
 
 const char *stages[] = {
-    "getUUID", "getHumidity", "getTemperature",
-    "getPressure", "testLeak", "testButton", "testLED",
+    "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
+    "getHumidity", "getTemperature",
+    "getPressure", "testLeak", "testButton", "testLED", "testBuzzer", "testSPI",
 };
 const int num_stages = 7;
 
@@ -121,14 +123,79 @@ void run_test_stage(const char *stage, const char *serial) {
     printf("[TEST] %-16s ... ", stage);
     fflush(stdout);
 
-    send_event(serial, stage, "testing", NULL);
+    if (strcmp(stage, "testBuzzer") != 0) {
+        send_event(serial, stage, "testing", NULL);
+    }
+
+    if (strcmp(stage, "getSensorIC") == 0) {
+        uart_hvf_sensor_result_t sensors;
+        int probe_ok = uart_hvf_probe_sensors(uart_fd, &sensors) == 0;
+        const char *status = probe_ok && sensors.probe_completed ? "pass" : "fail";
+
+        snprintf(detail, sizeof(detail),
+                 "\"sht41\":%s,\"ens210\":%s,\"lps22df\":%s,\"bme690\":%s,\"probe_completed\":%s",
+                 sensors.sht41 ? "true" : "false",
+                 sensors.ens210 ? "true" : "false",
+                 sensors.lps22df ? "true" : "false",
+                 sensors.bme690 ? "true" : "false",
+                 sensors.probe_completed ? "true" : "false");
+        send_event(serial, stage, status, detail);
+        printf("%s  {%s}\n", status, detail);
+        return;
+    }
+
+    if (strcmp(stage, "sht41") == 0 || strcmp(stage, "ens210") == 0 ||
+        strcmp(stage, "lps22df") == 0 || strcmp(stage, "bme690") == 0) {
+        uart_hvf_sensor_measurement_t measurement;
+        memset(&measurement, 0, sizeof(measurement));
+        int measure_result = uart_hvf_measure_sensor(uart_fd, stage, &measurement);
+        const char *status = measure_result == 0 && measurement.ok ? "pass" : "fail";
+        int offset = snprintf(detail, sizeof(detail), "\"sensor\":\"%s\",\"detected\":%s",
+                              stage, status[0] == 'p' ? "true" : "false");
+
+        if (measurement.temperature_valid) {
+            offset += snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                               ",\"temperature\":%.2f", measurement.temperature);
+        }
+        if (measurement.humidity_valid) {
+            offset += snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                               ",\"humidity\":%.2f", measurement.humidity);
+        }
+        if (measurement.pressure_valid) {
+            offset += snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                               ",\"pressure\":%.2f", measurement.pressure);
+        }
+        if (measurement.gas_resistance_valid) {
+            snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                     ",\"gas_resistance\":%.2f", measurement.gas_resistance);
+        }
+        send_event(serial, stage, status, detail);
+        printf("%s  {%s}\n", status, detail);
+        return;
+    }
+
+    if (strcmp(stage, "testBuzzer") == 0 || strcmp(stage, "testSPI") == 0) {
+        int result = strcmp(stage, "testBuzzer") == 0
+            ? uart_hvf_test_buzzer(uart_fd, 3000)
+            : uart_hvf_test_spi(uart_fd);
+        if (strcmp(stage, "testBuzzer") == 0 && result == 0) {
+            send_event(serial, stage, "testing", NULL);
+            printf("testing  {\"test\":\"testBuzzer\",\"awaiting_user_confirmation\":true}\n");
+            return;
+        }
+
+        const char *status = result == 0 ? "pass" : "fail";
+        snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":true", stage);
+        send_event(serial, stage, status, detail);
+        printf("%s  {%s}\n", status, detail);
+        return;
+    }
+
     sleep(1);  // 模擬量測耗時；接 UART 後換成實際交握
 
     const char *status = pass_or_fail(PASS_RATIO);
 
-    if (strcmp(stage, "getUUID") == 0) {
-        snprintf(detail, sizeof(detail), "\"uuid\":\"SM-%08X\"", rand());
-    } else if (strcmp(stage, "getHumidity") == 0) {
+    if (strcmp(stage, "getHumidity") == 0) {
         snprintf(detail, sizeof(detail), "\"humidity\":%.1f", 40.0 + (rand() % 300) / 10.0);
     } else if (strcmp(stage, "getTemperature") == 0) {
         snprintf(detail, sizeof(detail), "\"temperature\":%.1f", 20.0 + (rand() % 150) / 10.0);

@@ -227,7 +227,7 @@ echo "SEARCH" > ../shared/sensor_test.txt
 ```bash
 curl -X POST http://localhost:8000/api/sensor/events \
   -H 'Content-Type: application/json' \
-  -d '{"serial":"SN-MANUAL-001","stage":"getUUID","status":"pass","detail":{"uuid":"ABC123"}}'
+    -d '{"serial":"SN-MANUAL-001","stage":"getSensorIC","status":"pass","detail":{"ens210":true,"lps22df":true,"bme690":true,"sht41":false}}'
 ```
 
 > 前端有 `serial === serialNumber` 的過濾，SN 對不上會被靜默丟棄。
@@ -238,7 +238,7 @@ curl -X POST http://localhost:8000/api/sensor/events \
 
 | stage | detail key | 前端顯示 |
 |---|---|---|
-| `getUUID` | `uuid` | ✓ |
+| `getSensorIC` | `ens210`, `lps22df`, `bme690`, `sht41` | ✓ |
 | `getHumidity` | `humidity` | ✓ |
 | `getTemperature` | `temperature` | ✓ |
 | `getPressure` | `pressure` | ✓ |

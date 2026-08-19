@@ -40,7 +40,9 @@ export const testRecordsAPI = {
   delete: (id) => api.delete(`/api/test-records/${id}`),
   startSensorTest: (data) => api.post('/api/sensor/start-test', data),
   readSensorSerial: () => api.post('/api/sensor/read-serial'),
+  getLatestSensorSerial: () => api.get('/api/sensor/serial-found/latest'),
   runSensorStage: (data) => api.post('/api/sensor/run-stage', data),
+  reportSensorEvent: (data) => api.post('/api/sensor/events', data),
 };
 
 // Health Check

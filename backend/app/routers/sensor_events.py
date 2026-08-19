@@ -9,17 +9,25 @@ import os
 router = APIRouter(prefix="/api/sensor", tags=["Sensor Events"])
 logger = logging.getLogger("uvicorn.error") or logging.getLogger(__name__)
 
+latest_sensor_serials: Optional[Dict[str, str]] = None
+
 # 和 pcba_events.py 類似的結構，但針對 Sensor
 SHARED_FILE_PATH = "../shared/sensor_test.txt"
 
 SensorStage = Literal[
-    "getUUID",
+    "getSensorIC",
+    "sht41",
+    "ens210",
+    "lps22df",
+    "bme690",
     "getHumidity",
     "getTemperature",
     "getPressure",
     "testLeak",
     "testButton",
     "testLED",
+    "testBuzzer",
+    "testSPI",
 ]
 
 
@@ -77,6 +85,8 @@ async def read_sensor_serial():
     logger.info("[Sensor:/read-serial] Read serial request received")
 
     try:
+        global latest_sensor_serials
+        latest_sensor_serials = None
         with open(SHARED_FILE_PATH, "w") as f:
             f.write(f"SEARCH\n{datetime.now().isoformat()}\n")
 
@@ -103,6 +113,9 @@ async def sensor_serial_found(request: SerialFoundRequest):
     if not serial_wle:
         raise HTTPException(status_code=400, detail="serial_wle is required")
 
+    global latest_sensor_serials
+    latest_sensor_serials = {"serial_wle": serial_wle, "serial_wba": serial_wba}
+
     logger.info(
         f"[Sensor:/serial-found] Received serials: WLE={serial_wle} WBA={serial_wba}"
     )
@@ -119,6 +132,14 @@ async def sensor_serial_found(request: SerialFoundRequest):
     except Exception as e:
         logger.exception(f"[Sensor:/serial-found] Failed to broadcast serials: {e}")
         raise HTTPException(status_code=500, detail="Failed to broadcast serials")
+
+
+@router.get("/serial-found/latest")
+async def latest_sensor_serial():
+    return latest_sensor_serials or {
+        "serial_wle": "",
+        "serial_wba": "",
+    }
 
 
 @router.post("/start-test")

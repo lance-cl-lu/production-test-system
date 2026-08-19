@@ -23,7 +23,7 @@ all: $(TARGETS)
 pcba_watcher: pcba_watcher.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-sensor_watcher: sensor_watcher.c uart_hvf.c
+sensor_watcher: sensor_watcher.c uart_hvf.c uart_hvf_sensors.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 uart_hvf_probe: uart_hvf_probe.c

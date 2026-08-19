@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, Button, Row, Col, Tag, message, Input, Space, Typography } from 'antd';
+import { Card, Button, Row, Col, Tag, message, Input, Space, Typography, Modal } from 'antd';
 import { 
   PlayCircleOutlined, 
   CheckCircleOutlined, 
@@ -25,45 +25,64 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [runningStage, setRunningStage] = useState(null);
   const [readingSerial, setReadingSerial] = useState(false);
   const readTimeoutRef = useRef(null);
+  const serialPollRef = useRef(null);
+  const buzzerPromptRef = useRef(null);
   const [testResults, setTestResults] = useState({
-    getUUID: null,
+    getSensorIC: null,
+    sht41: null,
+    ens210: null,
+    lps22df: null,
+    bme690: null,
     getHumidity: null,
     getTemperature: null,
     getPressure: null,
     testLeak: null,
     testButton: null,
     testLED: null,
+    testBuzzer: null,
+    testSPI: null,
   });
   const [testData, setTestData] = useState({
     // 用於顯示從後端收到的具體數值
-    uuid: '',
+    sensors: [],
+    sensorMeasurements: {},
     humidity: 0,
     temperature: 0,
     pressure: 0,
   });
 
   const testItems = [
-    { key: 'getUUID', name: t.sensorIQC.getUUID, icon: '🔑' },
-    { key: 'getHumidity', name: t.sensorIQC.getHumidity, icon: '💧' },
-    { key: 'getTemperature', name: t.sensorIQC.getTemperature, icon: '🌡️' },
-    { key: 'getPressure', name: t.sensorIQC.getPressure, icon: '📊' },
+    { key: 'getSensorIC', name: t.sensorIQC.getSensorIC, icon: '🔌' },
+    { key: 'sht41', name: t.sensorIQC.sht41, icon: '🌡️' },
+    { key: 'ens210', name: t.sensorIQC.ens210, icon: '💧' },
+    { key: 'lps22df', name: t.sensorIQC.lps22df, icon: '🫧' },
+    { key: 'bme690', name: t.sensorIQC.bme690, icon: '🌫️' },
     { key: 'testLeak', name: t.sensorIQC.testLeak, icon: '🔍' },
     { key: 'testButton', name: t.sensorIQC.testButton, icon: '🔘' },
     { key: 'testLED', name: t.sensorIQC.testLED, icon: '💡' },
+    { key: 'testBuzzer', name: t.sensorIQC.testBuzzer, icon: '🔊' },
+    { key: 'testSPI', name: t.sensorIQC.testSPI, icon: '🔄' },
   ];
 
   const resetTest = () => {
     setTestResults({
-      getUUID: null,
+      getSensorIC: null,
+      sht41: null,
+      ens210: null,
+      lps22df: null,
+      bme690: null,
       getHumidity: null,
       getTemperature: null,
       getPressure: null,
       testLeak: null,
       testButton: null,
       testLED: null,
+      testBuzzer: null,
+      testSPI: null,
     });
     setTestData({
-      uuid: '',
+      sensors: [],
+      sensorMeasurements: {},
       humidity: 0,
       temperature: 0,
       pressure: 0,
@@ -84,6 +103,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
       // watcher 讀到兩組序號後自動填入
       if (payload.type === 'sensor_serial_found') {
+        clearInterval(serialPollRef.current);
         clearTimeout(readTimeoutRef.current);
         setSerialWle(payload.data.serial_wle);
         setSerialWba(payload.data.serial_wba || '');
@@ -102,6 +122,29 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
         // 只更新當前測試的 SN
         if (serial === serialWle) {
+          if (stage === 'testBuzzer' && status === 'testing' &&
+              buzzerPromptRef.current !== serial) {
+            buzzerPromptRef.current = serial;
+            Modal.confirm({
+              title: t.sensorIQC.buzzerQuestion,
+              content: t.sensorIQC.buzzerPrompt,
+              okText: t.sensorIQC.yes,
+              cancelText: t.sensorIQC.no,
+              onOk: () => testRecordsAPI.reportSensorEvent({
+                serial,
+                stage: 'testBuzzer',
+                status: 'pass',
+                detail: { heard: true },
+              }),
+              onCancel: () => testRecordsAPI.reportSensorEvent({
+                serial,
+                stage: 'testBuzzer',
+                status: 'fail',
+                detail: { heard: false },
+              }),
+            });
+          }
+
           setTestResults(prev => ({ ...prev, [stage]: status }));
 
           if (status === 'pass' || status === 'fail') {
@@ -109,7 +152,17 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
           }
 
           if (detail) {
-            setTestData(prev => ({ ...prev, ...detail }));
+            const detectedSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
+              .filter(sensor => detail[sensor]);
+            setTestData(prev => ({
+              ...prev,
+              ...detail,
+              sensors: detectedSensors,
+              sensorMeasurements: {
+                ...prev.sensorMeasurements,
+                [stage]: detail,
+              },
+            }));
           }
 
           // 檢查所有測試是否完成
@@ -139,6 +192,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     // 組件卸載時關閉 WebSocket
     return () => {
       ws.close();
+      clearInterval(serialPollRef.current);
+      clearTimeout(readTimeoutRef.current);
     };
   }, [serialWle, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
 
@@ -146,6 +201,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     setSerialWle('');
     setSerialWba('');
     setReadingSerial(true);
+    clearInterval(serialPollRef.current);
     // duration 0 讓提示一直顯示，直到相同 key 的訊息把它換掉
     message.loading({
       content: t.sensorIQC.readingSerial,
@@ -155,6 +211,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     clearTimeout(readTimeoutRef.current);
     readTimeoutRef.current = setTimeout(() => {
+      clearInterval(serialPollRef.current);
       setReadingSerial(false);
       message.warning({
         content: t.sensorIQC.readSerialTimeout,
@@ -165,8 +222,29 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     try {
       await testRecordsAPI.readSensorSerial();
+      serialPollRef.current = setInterval(async () => {
+        try {
+          const response = await testRecordsAPI.getLatestSensorSerial();
+          const { serial_wle: latestWle, serial_wba: latestWba } = response.data;
+          if (latestWle) {
+            clearInterval(serialPollRef.current);
+            clearTimeout(readTimeoutRef.current);
+            setSerialWle(latestWle);
+            setSerialWba(latestWba || '');
+            setReadingSerial(false);
+            message.success({
+              content: `WLE: ${latestWle}`,
+              key: READ_SERIAL_MSG_KEY,
+              duration: 3,
+            });
+          }
+        } catch (pollError) {
+          console.error('Failed to poll latest serial:', pollError);
+        }
+      }, 500);
     } catch (error) {
       console.error('Failed to read serial:', error);
+      clearInterval(serialPollRef.current);
       clearTimeout(readTimeoutRef.current);
       message.error({
         content: t.sensorIQC.readSerialFailed,
@@ -233,7 +311,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         temperature: parseFloat(currentData.temperature) || null,
         test_data: JSON.stringify({
           serial_wba: serialWba,
-          uuid: currentData.uuid,
+          sensors: currentData.sensors,
           humidity: currentData.humidity,
           temperature: currentData.temperature,
           pressure: currentData.pressure,
@@ -260,9 +338,30 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   };
 
   const getTestValue = (testKey) => {
+    const measurement = testData.sensorMeasurements[testKey];
+
+    if (measurement) {
+      const values = [];
+      if (measurement.temperature !== undefined) {
+        values.push(`${measurement.temperature}°C`);
+      }
+      if (measurement.humidity !== undefined) {
+        values.push(`${measurement.humidity}%`);
+      }
+      if (measurement.pressure !== undefined) {
+        values.push(`${measurement.pressure} hPa`);
+      }
+      if (measurement.gas_resistance !== undefined) {
+        values.push(`${measurement.gas_resistance} Ω`);
+      }
+      if (values.length > 0) {
+        return values.join(' / ');
+      }
+    }
+
     switch (testKey) {
-      case 'getUUID':
-        return testData.uuid || '-';
+      case 'getSensorIC':
+        return testData.sensors.length > 0 ? testData.sensors.join(', ') : '-';
       case 'getHumidity':
         return testData.humidity ? `${testData.humidity}%` : '-';
       case 'getTemperature':
@@ -323,38 +422,44 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
       <Card style={{ marginTop: 24 }} title={t.sensorIQC.testItems}>
         <Row gutter={[8, 8]}>
-          {testItems.map((item) => (
-            <Col span={12} key={item.key}>
-              <Card size="small">
-                <Row justify="space-between" align="middle">
-                  <Col span={6}>
-                    <Space>
-                      <span style={{ fontSize: 24 }}>{item.icon}</span>
-                      <Text strong>{item.name}</Text>
-                    </Space>
-                  </Col>
-                  <Col span={12}>
-                    <Text type="secondary" style={{ fontSize: 16 }}>
-                      {getTestValue(item.key)}
-                    </Text>
-                  </Col>
-                  <Col span={6} style={{ textAlign: 'right' }}>
-                    {testResults[item.key] === null ? (
-                      <Button
-                        size="small"
-                        onClick={() => runSingleStage(item.key)}
-                        disabled={!serialWle.trim() || testing || runningStage !== null}
-                      >
-                        {t.sensorIQC.testSingle}
-                      </Button>
-                    ) : (
-                      getResultTag(testResults[item.key])
-                    )}
-                  </Col>
-                </Row>
-              </Card>
-            </Col>
-          ))}
+          {[testItems.filter((item) => ['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key)),
+            testItems.filter((item) => !['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key))]
+            .map((columnItems, columnIndex) => (
+              <Col xs={24} lg={12} key={columnIndex}>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  {columnItems.map((item) => (
+                    <Card size="small" key={item.key}>
+                      <Row justify="space-between" align="middle">
+                        <Col span={6}>
+                          <Space>
+                            <span style={{ fontSize: 24 }}>{item.icon}</span>
+                            <Text strong>{item.name}</Text>
+                          </Space>
+                        </Col>
+                        <Col span={12}>
+                          <Text type="secondary" style={{ fontSize: 16 }}>
+                            {getTestValue(item.key)}
+                          </Text>
+                        </Col>
+                        <Col span={6} style={{ textAlign: 'right' }}>
+                          {testResults[item.key] === null ? (
+                            <Button
+                              size="small"
+                              onClick={() => runSingleStage(item.key)}
+                              disabled={!serialWle.trim() || testing || runningStage !== null}
+                            >
+                              {t.sensorIQC.testSingle}
+                            </Button>
+                          ) : (
+                            getResultTag(testResults[item.key])
+                          )}
+                        </Col>
+                      </Row>
+                    </Card>
+                  ))}
+                </Space>
+              </Col>
+            ))}
         </Row>
       </Card>
 
