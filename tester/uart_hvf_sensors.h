@@ -35,5 +35,8 @@ int uart_hvf_measure_sensor(int fd, const char *sensor_name,
 
 int uart_hvf_test_buzzer(int fd, int duration_ms);
 int uart_hvf_test_spi(int fd);
+int uart_hvf_test_button(int fd, int wait_seconds);
+int uart_hvf_test_led(int fd, int led_index);
+int uart_hvf_set_led(int fd, int led_index, int on);
 
 #endif

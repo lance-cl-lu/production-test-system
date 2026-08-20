@@ -52,7 +52,7 @@ const char *stages[] = {
     "getPressure", "testLeak", "testButton", "testGreenLED", "testOrangeLED",
     "testBuzzer", "testSPI",
 };
-const int num_stages = 13;
+const int num_stages = 14;
 
 static const char *pass_or_fail(double pass_ratio) {
     double r = (double)rand() / (double)RAND_MAX;
@@ -125,7 +125,11 @@ void run_test_stage(const char *stage, const char *serial) {
     printf("[TEST] %-16s ... ", stage);
     fflush(stdout);
 
-    if (strcmp(stage, "testBuzzer") != 0) {
+    if (strcmp(stage, "testBuzzer") != 0 &&
+        strcmp(stage, "testGreenLED") != 0 &&
+        strcmp(stage, "testOrangeLED") != 0 &&
+        strcmp(stage, "testGreenLEDOff") != 0 &&
+        strcmp(stage, "testOrangeLEDOff") != 0) {
         send_event(serial, stage, "testing", NULL);
     }
 
@@ -193,6 +197,42 @@ void run_test_stage(const char *stage, const char *serial) {
         return;
     }
 
+    if (strcmp(stage, "testOrangeLED") == 0 || strcmp(stage, "testGreenLED") == 0) {
+        int led_index = strcmp(stage, "testOrangeLED") == 0 ? 1 : 2;
+        int result = uart_hvf_test_led(uart_fd, led_index);
+        if (result == 0) {
+            send_event(serial, stage, "testing", NULL);
+            printf("testing  {\"led_color\":\"%s\",\"led_index\":%d,\"awaiting_user_confirmation\":true}\n",
+                   led_index == 1 ? "orange" : "blue", led_index);
+            return;
+        }
+
+        snprintf(detail, sizeof(detail), "\"led_color\":\"%s\",\"led_index\":%d",
+                 led_index == 1 ? "orange" : "blue", led_index);
+        send_event(serial, stage, "fail", detail);
+        printf("fail  {%s}\n", detail);
+        return;
+    }
+
+    if (strcmp(stage, "testOrangeLEDOff") == 0 || strcmp(stage, "testGreenLEDOff") == 0) {
+        int led_index = strcmp(stage, "testOrangeLEDOff") == 0 ? 1 : 2;
+        int result = uart_hvf_set_led(uart_fd, led_index, 0);
+        printf("[LED] %s index=%d => %s\n",
+               stage, led_index, result == 0 ? "ok" : "fail");
+        return;
+    }
+
+    if (strcmp(stage, "testButton") == 0) {
+        int wait_seconds = 3;
+        int result = uart_hvf_test_button(uart_fd, wait_seconds);
+        const char *status = result == 0 ? "pass" : "fail";
+        snprintf(detail, sizeof(detail), "\"press_count\":%d,\"window_s\":%d",
+                 result == 0 ? 1 : 0, wait_seconds);
+        send_event(serial, stage, status, detail);
+        printf("%s  {%s}\n", status, detail);
+        return;
+    }
+
     sleep(1);  // 模擬量測耗時；接 UART 後換成實際交握
 
     const char *status = pass_or_fail(PASS_RATIO);
@@ -205,8 +245,6 @@ void run_test_stage(const char *stage, const char *serial) {
         snprintf(detail, sizeof(detail), "\"pressure\":%.1f", 990.0 + (rand() % 400) / 10.0);
     } else if (strcmp(stage, "testLeak") == 0) {
         snprintf(detail, sizeof(detail), "\"leak_rate\":%.3f", (rand() % 50) / 1000.0);
-    } else if (strcmp(stage, "testButton") == 0) {
-        snprintf(detail, sizeof(detail), "\"press_count\":%d", 3);
     } else if (strcmp(stage, "testGreenLED") == 0) {
         snprintf(detail, sizeof(detail), "\"led_color\":\"green\",\"lux\":%d",
                  100 + (rand() % 400));
@@ -268,6 +306,10 @@ void handle_test_command(const char *serial) {
 }
 
 static int is_valid_stage(const char *stage) {
+    if (strcmp(stage, "testGreenLEDOff") == 0 || strcmp(stage, "testOrangeLEDOff") == 0) {
+        return 1;
+    }
+
     for (int i = 0; i < num_stages; i++) {
         // printf("[DEBUG] stages[%d]='%s', stage='%s'\n", i, stages[i], stage);
         if (strcmp(stages[i], stage) == 0) {

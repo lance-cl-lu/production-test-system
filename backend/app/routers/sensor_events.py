@@ -27,6 +27,8 @@ SensorStage = Literal[
     "testButton",
     "testGreenLED",
     "testOrangeLED",
+    "testGreenLEDOff",
+    "testOrangeLEDOff",
     "testBuzzer",
     "testSPI",
 ]

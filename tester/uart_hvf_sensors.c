@@ -277,6 +277,46 @@ int uart_hvf_test_spi(int fd) {
     return result;
 }
 
+int uart_hvf_test_button(int fd, int wait_seconds) {
+    char command[64];
+    int timeout_ms;
+    int result;
+
+    if (wait_seconds <= 0) {
+        return -1;
+    }
+    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0 || enter_passthrough(fd) != 0) {
+        return -1;
+    }
+
+    snprintf(command, sizeof(command), "gpio_button %d", wait_seconds);
+    timeout_ms = wait_seconds * 1000 + 800;
+    result = run_command_until_ok(fd, command, timeout_ms);
+
+    // 無論成功失敗，都要退出 passthrough，避免後續指令卡在同一模式。
+    exit_passthrough(fd);
+    return result;
+}
+
+int uart_hvf_test_led(int fd, int led_index) {
+    return uart_hvf_set_led(fd, led_index, 1);
+}
+
+int uart_hvf_set_led(int fd, int led_index, int on) {
+    char command[32];
+    int result;
+
+    if ((led_index != 1 && led_index != 2) ||
+        drain_until_idle(fd, SENSOR_IDLE_MS) != 0 || enter_passthrough(fd) != 0) {
+        return -1;
+    }
+
+    snprintf(command, sizeof(command), "%s %d", on ? "led_on" : "led_off", led_index);
+    result = run_command_until_ok(fd, command, 1500);
+    exit_passthrough(fd);
+    return result;
+}
+
 int uart_hvf_probe_sensors(int fd, uart_hvf_sensor_result_t *result) {
     sensor_probe_context_t context = {.fd = fd};
 

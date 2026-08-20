@@ -27,6 +27,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const readTimeoutRef = useRef(null);
   const serialPollRef = useRef(null);
   const buzzerPromptRef = useRef(null);
+  const ledPromptRef = useRef(null);
   const [testResults, setTestResults] = useState({
     getSensorIC: null,
     sht41: null,
@@ -60,11 +61,42 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     { key: 'bme690', name: t.sensorIQC.bme690, icon: '🌫️' },
     { key: 'testLeak', name: t.sensorIQC.testLeak, icon: '🔍' },
     { key: 'testButton', name: t.sensorIQC.testButton, icon: '🔘' },
-    { key: 'testGreenLED', name: t.sensorIQC.testGreenLED, icon: '💡' },
+    { key: 'testGreenLED', name: t.sensorIQC.testBlueLED, icon: '🔵' },
     { key: 'testOrangeLED', name: t.sensorIQC.testOrangeLED, icon: '💡' },
     { key: 'testBuzzer', name: t.sensorIQC.testBuzzer, icon: '🔊' },
     { key: 'testSPI', name: t.sensorIQC.testSPI, icon: '🔄' },
   ];
+
+  const getLedOffStage = (stage) => {
+    if (stage === 'testGreenLED') return 'testGreenLEDOff';
+    if (stage === 'testOrangeLED') return 'testOrangeLEDOff';
+    return null;
+  };
+
+  const reportLedDecision = async ({ serial, stage, seen }) => {
+    const ledOffStage = getLedOffStage(stage);
+    let ledOffOk = false;
+
+    if (ledOffStage) {
+      try {
+        await testRecordsAPI.runSensorStage({ serial, stage: ledOffStage });
+        ledOffOk = true;
+      } catch (error) {
+        console.error('Failed to turn off LED:', error);
+        message.warning(t.sensorIQC.ledOffFailed);
+      }
+    }
+
+    await testRecordsAPI.reportSensorEvent({
+      serial,
+      stage,
+      status: seen ? 'pass' : 'fail',
+      detail: {
+        seen,
+        led_off_ok: ledOffOk,
+      },
+    });
+  };
 
   const resetTest = () => {
     setTestResults({
@@ -148,10 +180,29 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             });
           }
 
+          if ((stage === 'testGreenLED' || stage === 'testOrangeLED') && status === 'testing') {
+            const promptKey = `${serial}:${stage}`;
+            if (ledPromptRef.current !== promptKey) {
+              ledPromptRef.current = promptKey;
+              const isBlue = stage === 'testGreenLED';
+              Modal.confirm({
+                title: isBlue ? t.sensorIQC.blueLedQuestion : t.sensorIQC.orangeLedQuestion,
+                content: isBlue ? t.sensorIQC.blueLedPrompt : t.sensorIQC.orangeLedPrompt,
+                okText: t.sensorIQC.yes,
+                cancelText: t.sensorIQC.no,
+                onOk: () => reportLedDecision({ serial, stage, seen: true }),
+                onCancel: () => reportLedDecision({ serial, stage, seen: false }),
+              });
+            }
+          }
+
           setTestResults(prev => ({ ...prev, [stage]: status }));
 
           if (status === 'pass' || status === 'fail') {
             setRunningStage(prev => (prev === stage ? null : prev));
+            if (stage === 'testGreenLED' || stage === 'testOrangeLED') {
+              ledPromptRef.current = null;
+            }
           }
 
           if (detail) {
@@ -201,6 +252,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   }, [serialWle, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
 
   const handleReadSerial = async () => {
+    // 重新讀序號時，先把先前測試狀態全部清掉，避免沿用舊的 PASS/FAIL
+    resetTest();
+    setRunningStage(null);
+    buzzerPromptRef.current = null;
+    ledPromptRef.current = null;
+
     setSerialWle('');
     setSerialWba('');
     setReadingSerial(true);
