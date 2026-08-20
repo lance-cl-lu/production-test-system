@@ -25,7 +25,8 @@ SensorStage = Literal[
     "getPressure",
     "testLeak",
     "testButton",
-    "testLED",
+    "testGreenLED",
+    "testOrangeLED",
     "testBuzzer",
     "testSPI",
 ]

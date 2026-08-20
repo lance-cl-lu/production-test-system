@@ -244,7 +244,8 @@ curl -X POST http://localhost:8000/api/sensor/events \
 | `getPressure` | `pressure` | ✓ |
 | `testLeak` | `leak_rate` | – |
 | `testButton` | `press_count` | – |
-| `testLED` | `lux` | – |
+| `testGreenLED` | `led_color`, `lux` | – |
+| `testOrangeLED` | `led_color`, `lux` | – |
 
 ### 接入真實 UART
 

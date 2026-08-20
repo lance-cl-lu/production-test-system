@@ -49,7 +49,8 @@ static void handle_signal(int signum) {
 const char *stages[] = {
     "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
     "getHumidity", "getTemperature",
-    "getPressure", "testLeak", "testButton", "testLED", "testBuzzer", "testSPI",
+    "getPressure", "testLeak", "testButton", "testGreenLED", "testOrangeLED",
+    "testBuzzer", "testSPI",
 };
 const int num_stages = 13;
 
@@ -206,8 +207,12 @@ void run_test_stage(const char *stage, const char *serial) {
         snprintf(detail, sizeof(detail), "\"leak_rate\":%.3f", (rand() % 50) / 1000.0);
     } else if (strcmp(stage, "testButton") == 0) {
         snprintf(detail, sizeof(detail), "\"press_count\":%d", 3);
-    } else if (strcmp(stage, "testLED") == 0) {
-        snprintf(detail, sizeof(detail), "\"lux\":%d", 100 + (rand() % 400));
+    } else if (strcmp(stage, "testGreenLED") == 0) {
+        snprintf(detail, sizeof(detail), "\"led_color\":\"green\",\"lux\":%d",
+                 100 + (rand() % 400));
+    } else if (strcmp(stage, "testOrangeLED") == 0) {
+        snprintf(detail, sizeof(detail), "\"led_color\":\"orange\",\"lux\":%d",
+                 100 + (rand() % 400));
     }
 
     send_event(serial, stage, status, detail);

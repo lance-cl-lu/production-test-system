@@ -38,7 +38,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     getPressure: null,
     testLeak: null,
     testButton: null,
-    testLED: null,
+    testGreenLED: null,
+    testOrangeLED: null,
     testBuzzer: null,
     testSPI: null,
   });
@@ -59,7 +60,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     { key: 'bme690', name: t.sensorIQC.bme690, icon: '🌫️' },
     { key: 'testLeak', name: t.sensorIQC.testLeak, icon: '🔍' },
     { key: 'testButton', name: t.sensorIQC.testButton, icon: '🔘' },
-    { key: 'testLED', name: t.sensorIQC.testLED, icon: '💡' },
+    { key: 'testGreenLED', name: t.sensorIQC.testGreenLED, icon: '💡' },
+    { key: 'testOrangeLED', name: t.sensorIQC.testOrangeLED, icon: '💡' },
     { key: 'testBuzzer', name: t.sensorIQC.testBuzzer, icon: '🔊' },
     { key: 'testSPI', name: t.sensorIQC.testSPI, icon: '🔄' },
   ];
@@ -76,7 +78,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       getPressure: null,
       testLeak: null,
       testButton: null,
-      testLED: null,
+      testGreenLED: null,
+      testOrangeLED: null,
       testBuzzer: null,
       testSPI: null,
     });
@@ -382,14 +385,24 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             <Text type="secondary">{t.sensorIQC.description}</Text>
           </div>
 
-          <Space direction="vertical" size="small">
-            <Space.Compact style={{ width: 480 }}>
+          <Row gutter={8} align="middle" wrap={false}>
+            <Col flex="1 1 0">
               <Input
                 addonBefore="WLE"
                 placeholder={t.sensorIQC.enterSerialNumber}
                 value={serialWle}
                 onChange={(e) => setSerialWle(e.target.value)}
               />
+            </Col>
+            <Col flex="1 1 0">
+              <Input
+                addonBefore="WBA"
+                placeholder={t.sensorIQC.enterSerialNumber}
+                value={serialWba}
+                onChange={(e) => setSerialWba(e.target.value)}
+              />
+            </Col>
+            <Col flex="none">
               <Button
                 icon={<ScanOutlined />}
                 onClick={handleReadSerial}
@@ -398,25 +411,20 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
               >
                 {t.sensorIQC.readSerial}
               </Button>
-            </Space.Compact>
-            <Input
-              addonBefore="WBA"
-              placeholder={t.sensorIQC.enterSerialNumber}
-              value={serialWba}
-              onChange={(e) => setSerialWba(e.target.value)}
-              style={{ width: 480 }}
-            />
-          </Space>
-          <Button
-            type="primary"
-            size="large"
-            icon={<PlayCircleOutlined />}
-            onClick={startTest}
-            loading={testing}
-            disabled={!serialWle.trim() || readingSerial || runningStage !== null}
-          >
-            {t.sensorIQC.startTest}
-          </Button>
+            </Col>
+            <Col flex="none">
+              <Button
+                type="primary"
+                size="large"
+                icon={<PlayCircleOutlined />}
+                onClick={startTest}
+                loading={testing}
+                disabled={!serialWle.trim() || readingSerial || runningStage !== null}
+              >
+                {t.sensorIQC.startTest}
+              </Button>
+            </Col>
+          </Row>
         </Space>
       </Card>
 
