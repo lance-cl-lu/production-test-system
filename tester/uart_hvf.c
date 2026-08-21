@@ -355,7 +355,7 @@ static int read_stm32_id_passthrough(int fd, char *out, size_t out_len) {
     int extracted = extract_hvf_payload(id_response, out, out_len);
 
     // 無論讀取成敗都要退出 passthrough，否則裝置會卡在該模式
-    (void)send_first_command_with_success_hints(
+    int exit_ok = send_first_command_with_success_hints(
         fd, passthrough_exit_commands,
         sizeof(passthrough_exit_commands) / sizeof(passthrough_exit_commands[0]),
         exit_response, sizeof(exit_response), 2500,
@@ -365,7 +365,13 @@ static int read_stm32_id_passthrough(int fd, char *out, size_t out_len) {
         return -1;
     }
 
-    return (strstr(exit_response, "<[OK]>") != NULL) ? 0 : -1;
+    // 某些韌體會在 ipc_passthrough 時直接退出，後續 exit 指令可能回 Unknown command。
+    // 只要 UID 已成功抽出，就視為讀取成功，避免誤判 SEARCH 失敗。
+    if (exit_ok != 0 && strstr(exit_response, "<[OK]>") == NULL) {
+        debug_print("[debug] passthrough exit not acknowledged, but UID already read\n");
+    }
+
+    return 0;
 }
 
 int uart_hvf_read_stm32_id(int fd, int passthrough, char *out, size_t out_len) {

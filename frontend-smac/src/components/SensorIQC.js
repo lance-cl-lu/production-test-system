@@ -206,17 +206,28 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
           }
 
           if (detail) {
-            const detectedSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
-              .filter(sensor => detail[sensor]);
-            setTestData(prev => ({
-              ...prev,
-              ...detail,
-              sensors: detectedSensors,
-              sensorMeasurements: {
-                ...prev.sensorMeasurements,
-                [stage]: detail,
-              },
-            }));
+            setTestData(prev => {
+              // 只有有明確偵測資訊時才更新 sensors，避免其他 stage 把結果覆蓋成空值
+              let nextSensors = prev.sensors;
+              if (stage === 'getSensorIC') {
+                nextSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
+                  .filter(sensor => detail[sensor] === true);
+              } else if (detail.sensor && detail.detected === true) {
+                nextSensors = prev.sensors.includes(detail.sensor)
+                  ? prev.sensors
+                  : [...prev.sensors, detail.sensor];
+              }
+
+              return {
+                ...prev,
+                ...detail,
+                sensors: nextSensors,
+                sensorMeasurements: {
+                  ...prev.sensorMeasurements,
+                  [stage]: detail,
+                },
+              };
+            });
           }
 
           // 檢查所有測試是否完成

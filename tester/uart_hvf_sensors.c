@@ -12,6 +12,13 @@
 
 #define SENSOR_IDLE_MS 200
 #define SENSOR_WAIT_MS 100
+#define SPI_RX_TIMEOUT_MS 12000
+#define SPI_TX_TIMEOUT_MS 12000
+
+static void spi_debug_dump(const char *label, const char *response) {
+    fprintf(stderr, "[SPI][debug] %s: %s\n", label,
+            (response != NULL && response[0] != '\0') ? response : "<empty>");
+}
 
 typedef struct {
     int fd;
@@ -211,13 +218,29 @@ int uart_hvf_measure_sensor(int fd, const char *sensor_name,
 
 static int run_command_until_ok(int fd, const char *command, int timeout_ms) {
     char response[2048];
-    int remaining = timeout_ms;
+    int elapsed = 0;
+    const int slice_ms = 100;
+    size_t used = 0;
 
     write_all(fd, command);
     write_all(fd, "\r\n");
-    while (remaining > 0) {
-        memset(response, 0, sizeof(response));
-        read_to_buffer(fd, response, sizeof(response), remaining);
+
+    memset(response, 0, sizeof(response));
+    while (elapsed < timeout_ms) {
+        int wait_ms = timeout_ms - elapsed;
+        if (wait_ms > slice_ms) {
+            wait_ms = slice_ms;
+        }
+
+        if (used >= sizeof(response) - 1U) {
+            return -1;
+        }
+
+        int got = read_to_buffer(fd, response + used, sizeof(response) - used, wait_ms);
+        if (got > 0) {
+            used += (size_t)got;
+        }
+
         if (strstr(response, "<[OK]>") != NULL) {
             return 0;
         }
@@ -225,20 +248,120 @@ static int run_command_until_ok(int fd, const char *command, int timeout_ms) {
             strstr(response, "Unknown command") != NULL) {
             return -1;
         }
-        remaining -= 100;
+
+        // 某些韌體會直接回到 prompt 但不帶結果標記，避免一路等到 timeout。
+        if (strstr(response, "hvf>") != NULL) {
+            return -1;
+        }
+
+        elapsed += wait_ms;
+    }
+
+    return -1;
+}
+
+static int run_command_until_ok_capture(int fd, const char *command, int timeout_ms,
+                                        char *response_out, size_t response_out_size) {
+    char response[2048];
+    int elapsed = 0;
+    const int slice_ms = 100;
+    size_t used = 0;
+
+    if (response_out != NULL && response_out_size > 0U) {
+        response_out[0] = '\0';
+    }
+
+    write_all(fd, command);
+    write_all(fd, "\r\n");
+
+    memset(response, 0, sizeof(response));
+    while (elapsed < timeout_ms) {
+        int wait_ms = timeout_ms - elapsed;
+        if (wait_ms > slice_ms) {
+            wait_ms = slice_ms;
+        }
+
+        if (used >= sizeof(response) - 1U) {
+            break;
+        }
+
+        int got = read_to_buffer(fd, response + used, sizeof(response) - used, wait_ms);
+        if (got > 0) {
+            used += (size_t)got;
+        }
+
+        if (strstr(response, "<[OK]>") != NULL) {
+            if (response_out != NULL && response_out_size > 0U) {
+                snprintf(response_out, response_out_size, "%s", response);
+            }
+            return 0;
+        }
+        if (strstr(response, "<[ERROR]>") != NULL ||
+            strstr(response, "Unknown command") != NULL) {
+            if (response_out != NULL && response_out_size > 0U) {
+                snprintf(response_out, response_out_size, "%s", response);
+            }
+            return -1;
+        }
+        if (strstr(response, "hvf>") != NULL) {
+            if (response_out != NULL && response_out_size > 0U) {
+                snprintf(response_out, response_out_size, "%s", response);
+            }
+            return -1;
+        }
+
+        elapsed += wait_ms;
+    }
+
+    if (response_out != NULL && response_out_size > 0U) {
+        snprintf(response_out, response_out_size, "%s", response);
     }
     return -1;
 }
 
-static int enter_passthrough(int fd) {
-    char response[1024];
-
-    write_all(fd, "ipc_passthrough\r\n");
-    read_to_buffer(fd, response, sizeof(response), 2000);
-    if (strstr(response, "Entering HVF passthrough") == NULL &&
-        strstr(response, "Press Ctrl+C") == NULL) {
+static int send_command_capture(int fd, const char *command, char *response, size_t response_size,
+                                int timeout_ms) {
+    if (response_size == 0U) {
         return -1;
     }
+    memset(response, 0, response_size);
+    write_all(fd, command);
+    write_all(fd, "\r\n");
+    read_to_buffer(fd, response, response_size, timeout_ms);
+    return 0;
+}
+
+static int response_has_error_marker(const char *response) {
+    return strstr(response, "<[ERROR]>") != NULL ||
+           strstr(response, "Unknown command") != NULL ||
+           strstr(response, "ERROR") != NULL ||
+           strstr(response, "Error:") != NULL;
+}
+
+static int enter_passthrough(int fd) {
+    char response[1024];
+    static const char *const passthrough_commands[] = {
+        "ipc_passthrough", "ipc_passtrough", "passthrough"
+    };
+
+    int entered = 0;
+    for (size_t i = 0; i < sizeof(passthrough_commands) / sizeof(passthrough_commands[0]); ++i) {
+        (void)send_command_capture(fd, passthrough_commands[i], response, sizeof(response), 2000);
+        if (strstr(response, "Entering HVF passthrough") != NULL ||
+            strstr(response, "Press Ctrl+C") != NULL) {
+            entered = 1;
+            break;
+        }
+        if (!response_has_error_marker(response)) {
+            entered = 1;
+            break;
+        }
+    }
+
+    if (!entered) {
+        return -1;
+    }
+
     for (int i = 0; i < 3; i++) {
         write_all(fd, "\r");
         usleep(SENSOR_WAIT_MS * 1000);
@@ -247,7 +370,22 @@ static int enter_passthrough(int fd) {
 }
 
 static void exit_passthrough(int fd) {
-    (void)run_command_until_ok(fd, "ipc_passthrough_exit", 2500);
+    char response[1024];
+    static const char *const passthrough_exit_commands[] = {
+        "ipc_passthrough_exit", "ipc_passtrough_exit", "passthrough_exit"
+    };
+
+    for (size_t i = 0; i < sizeof(passthrough_exit_commands) / sizeof(passthrough_exit_commands[0]); ++i) {
+        (void)send_command_capture(fd, passthrough_exit_commands[i], response, sizeof(response), 2500);
+        if (strstr(response, "IPC_IRQ pulse sent") != NULL ||
+            strstr(response, "Exited HVF passthrough") != NULL ||
+            strstr(response, "<[OK]>") != NULL) {
+            return;
+        }
+        if (!response_has_error_marker(response)) {
+            return;
+        }
+    }
 }
 
 int uart_hvf_test_buzzer(int fd, int duration_ms) {
@@ -264,16 +402,52 @@ int uart_hvf_test_buzzer(int fd, int duration_ms) {
 }
 
 int uart_hvf_test_spi(int fd) {
+    char response[2048];
     int result = -1;
+    static const char *const spi_passthrough_commands[] = {
+        "ipc_passthrough", "ipc_passtrough"
+    };
 
-    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0 || enter_passthrough(fd) != 0) {
+    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
         return -1;
     }
-    if (run_command_until_ok(fd, "ipc_spi_rx_echo_auto", 35000) == 0 &&
-        run_command_until_ok(fd, "ipc_spi_tx_echo", 35000) == 0) {
-        result = 0;
+
+    // 實機流程：ipc_passthrough -> Enter x3 -> ipc_spi_rx_echo_auto。
+    // 這個指令結束後韌體會自行回到 WLE console，因此不要再下 exit 指令。
+    int entered = 0;
+    for (size_t i = 0; i < sizeof(spi_passthrough_commands) / sizeof(spi_passthrough_commands[0]); ++i) {
+        if (send_command_capture(fd, spi_passthrough_commands[i], response, sizeof(response), 2000) != 0) {
+            continue;
+        }
+        spi_debug_dump("passthrough response", response);
+        if (strstr(response, "Entering HVF passthrough") != NULL ||
+            strstr(response, "Press Ctrl+C") != NULL ||
+            !response_has_error_marker(response)) {
+            entered = 1;
+            break;
+        }
     }
-    exit_passthrough(fd);
+
+    if (!entered) {
+        return -1;
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        write_all(fd, "\r");
+        usleep(SENSOR_WAIT_MS * 1000);
+    }
+    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
+        return -1;
+    }
+
+    if (run_command_until_ok_capture(fd, "ipc_spi_rx_echo_auto", SPI_RX_TIMEOUT_MS,
+                                     response, sizeof(response)) == 0) {
+        spi_debug_dump("ipc_spi_rx_echo_auto response", response);
+        result = 0;
+    } else {
+        spi_debug_dump("ipc_spi_rx_echo_auto failed response", response);
+    }
+
     return result;
 }
 
