@@ -59,7 +59,6 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     { key: 'ens210', name: t.sensorIQC.ens210, icon: '💧' },
     { key: 'lps22df', name: t.sensorIQC.lps22df, icon: '🫧' },
     { key: 'bme690', name: t.sensorIQC.bme690, icon: '🌫️' },
-    { key: 'testLeak', name: t.sensorIQC.testLeak, icon: '🔍' },
     { key: 'testButton', name: t.sensorIQC.testButton, icon: '🔘' },
     { key: 'testGreenLED', name: t.sensorIQC.testBlueLED, icon: '🔵' },
     { key: 'testOrangeLED', name: t.sensorIQC.testOrangeLED, icon: '💡' },
