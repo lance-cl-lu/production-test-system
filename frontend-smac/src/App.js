@@ -4,10 +4,7 @@ import {
   DashboardOutlined,
   UnorderedListOutlined,
   WifiOutlined,
-  ApiOutlined,
   RadarChartOutlined,
-  BarcodeOutlined,
-  CheckCircleOutlined,
   GlobalOutlined,
 } from '@ant-design/icons';
 import Dashboard from './components/Dashboard';
@@ -30,13 +27,13 @@ function App() {
 
   const handleWebSocketMessage = useCallback((message) => {
     console.log('Received WebSocket message:', message);
-    if (message.type === 'test_result') {
+    if (message.type === 'test_result' || message.type === 'sensor_test_saved') {
       // 觸發列表重新載入
       setNewRecordTrigger((prev) => prev + 1);
     }
   }, []);
 
-  const { isConnected, lastMessage } = useWebSocket(handleWebSocketMessage);
+  const { isConnected } = useWebSocket(handleWebSocketMessage);
 
   const t = translations[language];
 

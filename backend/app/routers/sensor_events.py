@@ -317,9 +317,28 @@ def get_sensor_test_runs(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     serial_wle: Optional[str] = None,
+    test_result: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(SensorTestRun).options(selectinload(SensorTestRun.items))
     if serial_wle:
         query = query.filter(SensorTestRun.serial_wle == serial_wle)
+    if test_result:
+        query = query.filter(SensorTestRun.test_result == test_result)
+    if start_date:
+        query = query.filter(SensorTestRun.completed_at >= start_date)
+    if end_date:
+        query = query.filter(SensorTestRun.completed_at <= end_date)
     return query.order_by(SensorTestRun.completed_at.desc()).offset(skip).limit(limit).all()
+
+
+@router.delete("/test-runs/{run_id}", status_code=204)
+def delete_sensor_test_run(run_id: int, db: Session = Depends(get_db)):
+    run = db.query(SensorTestRun).filter(SensorTestRun.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Sensor test run not found")
+    db.delete(run)
+    db.commit()
+    return None

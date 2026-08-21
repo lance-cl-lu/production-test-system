@@ -22,6 +22,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
 #include <curl/curl.h>
 
 #include "uart_hvf.h"
@@ -31,6 +33,7 @@
 #define API_EVENTS_URL "http://localhost:8000/api/sensor/events"
 #define API_SERIAL_FOUND_URL "http://localhost:8000/api/sensor/serial-found"
 #define CHECK_INTERVAL 1
+#define WATCHER_LOCK_FILE "/tmp/production-test-system-sensor-watcher.lock"
 
 // 設為 1.0 讓模擬全數通過，先確認管線；之後可調低來測 FAIL 顯示
 #define PASS_RATIO 1.0
@@ -39,6 +42,7 @@
 #define BOARD_SWAP_IDLE_MS 800
 
 static int uart_fd = -1;
+static int watcher_lock_fd = -1;
 static volatile sig_atomic_t keep_running = 1;
 
 static void handle_signal(int signum) {
@@ -54,6 +58,8 @@ const int num_stages = 10;
 
 static uart_hvf_sensor_result_t last_sensor_probe;
 static char last_serial_wba[128] = "";
+static char sensor_probe_serial[128] = "";
+static int sensor_probe_valid = 0;
 
 static const char *pass_or_fail(double pass_ratio) {
     double r = (double)rand() / (double)RAND_MAX;
@@ -153,6 +159,12 @@ void run_test_stage(const char *stage, const char *serial) {
         int probe_ok = uart_hvf_probe_sensors(uart_fd, &sensors) == 0;
         last_sensor_probe = sensors;
         const char *status = probe_ok && sensors.probe_completed ? "pass" : "fail";
+        sensor_probe_valid = probe_ok && sensors.probe_completed;
+        if (sensor_probe_valid) {
+            snprintf(sensor_probe_serial, sizeof(sensor_probe_serial), "%s", serial);
+        } else {
+            sensor_probe_serial[0] = '\0';
+        }
 
         snprintf(detail, sizeof(detail),
                  "\"sht41\":%s,\"ens210\":%s,\"lps22df\":%s,\"bme690\":%s,\"probe_completed\":%s",
@@ -301,6 +313,10 @@ void handle_search_command(void) {
     char payload[384];
 
     printf("\n[SEARCH] Flushing UART input...\n");
+    // SEARCH 代表可能已換板，舊板的 Sensor IC 探測結果不可沿用。
+    sensor_probe_valid = 0;
+    sensor_probe_serial[0] = '\0';
+    memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
     // 換板子時裝置會吐一段開機訊息，先清乾淨再下指令
     uart_hvf_flush_input(uart_fd, BOARD_SWAP_IDLE_MS);
 
@@ -388,12 +404,18 @@ void handle_test_command(const char *serial) {
 }
 
 static void handle_stage_command(const char *stage, const char *serial) {
-    memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
-    run_test_stage("getSensorIC", serial);
-
     if (strcmp(stage, "getSensorIC") == 0) {
+        memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
+        run_test_stage("getSensorIC", serial);
         send_test_complete(serial, "single", stage, "[\"getSensorIC\"]");
         return;
+    }
+
+    int probed_for_this_stage = 0;
+    if (!sensor_probe_valid || strcmp(sensor_probe_serial, serial) != 0) {
+        memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
+        run_test_stage("getSensorIC", serial);
+        probed_for_this_stage = 1;
     }
 
     if (!sensor_is_detected(stage)) {
@@ -406,7 +428,11 @@ static void handle_stage_command(const char *stage, const char *serial) {
     }
 
     char expected[192];
-    snprintf(expected, sizeof(expected), "[\"getSensorIC\",\"%s\"]", stage);
+    if (probed_for_this_stage) {
+        snprintf(expected, sizeof(expected), "[\"getSensorIC\",\"%s\"]", stage);
+    } else {
+        snprintf(expected, sizeof(expected), "[\"%s\"]", stage);
+    }
     send_test_complete(serial, "single", stage, expected);
 }
 
@@ -480,6 +506,13 @@ int main(int argc, char **argv) {
 
     srand((unsigned int)time(NULL));
 
+    watcher_lock_fd = open(WATCHER_LOCK_FILE, O_CREAT | O_RDWR, 0666);
+    if (watcher_lock_fd < 0 || flock(watcher_lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        fprintf(stderr, "[ERROR] Another sensor_watcher is already running\n");
+        if (watcher_lock_fd >= 0) close(watcher_lock_fd);
+        return 1;
+    }
+
     setvbuf(stdout, NULL, _IOLBF, 0);  // 輸出導向檔案時仍即時可見
 
     struct stat st_old = {0}, st_new;
@@ -547,6 +580,8 @@ int main(int argc, char **argv) {
 
     printf("\nShutting down...\n");
     uart_hvf_close(uart_fd);
+    flock(watcher_lock_fd, LOCK_UN);
+    close(watcher_lock_fd);
     curl_global_cleanup();
     return 0;
 }

@@ -39,8 +39,8 @@ services:
       - "${FRONTEND_SMAC_PORT:-3000}:3000"
     environment:
       REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHPACK_POLLING: "true"
+      DISABLE_ESLINT_PLUGIN: "true"
+      GENERATE_SOURCEMAP: "false"
     depends_on:
       - backend
     volumes:

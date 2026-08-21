@@ -32,6 +32,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [readingSerial, setReadingSerial] = useState(false);
   const readTimeoutRef = useRef(null);
   const serialPollRef = useRef(null);
+  const serialWleRef = useRef('');
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
   const testResultsRef = useRef({});
@@ -58,6 +59,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     temperature: 0,
     pressure: 0,
   });
+
+  // WebSocket 必須常駐，不能因序號 state 改變而重連；否則快速測項的
+  // pass/detail 可能落在關閉與重連之間。Handler 一律讀取最新 ref。
+  serialWleRef.current = serialWle;
 
   const testItems = [
     { key: 'getSensorIC', name: t.sensorIQC.getSensorIC, icon: '🔌' },
@@ -152,7 +157,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         return;
       }
 
-      if (payload.type === 'sensor_test_saved' && payload.data.serial === serialWle) {
+      if (payload.type === 'sensor_test_saved' && payload.data.serial === serialWleRef.current) {
         message.success(t.sensorIQC.saveSuccess || 'Test record saved');
         return;
       }
@@ -162,7 +167,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         const { serial, stage, status, detail } = payload.data;
 
         // 只更新當前測試的 SN
-        if (serial === serialWle) {
+        if (serial === serialWleRef.current) {
           if (stage === 'testComplete') {
             completionExpectedRef.current = detail?.expected_stages || [];
           }
@@ -277,7 +282,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       clearInterval(serialPollRef.current);
       clearTimeout(readTimeoutRef.current);
     };
-  }, [serialWle, t, reportLedDecision]);
+  }, [t, reportLedDecision]);
 
   const handleReadSerial = async () => {
     // 重新讀序號時，先把先前測試狀態全部清掉，避免沿用舊的 PASS/FAIL
@@ -343,7 +348,9 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     const sn = serialWle.trim();
     if (!sn) return;
 
-    resetTest();
+    // 保留已取得的 Sensor IC 與其他單項結果；只有換序號或開始全測才全部清除。
+    completionExpectedRef.current = [];
+    completionShownRef.current = false;
     setRunningStage(stageKey);
     testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'testing' };
     setTestResults(testResultsRef.current);
@@ -354,7 +361,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       console.error('Failed to run stage:', error);
       message.error(t.sensorIQC.stageFailed);
       setRunningStage(null);
-      setTestResults(prev => ({ ...prev, [stageKey]: null }));
+      testResultsRef.current = { ...testResultsRef.current, [stageKey]: null };
+      setTestResults(testResultsRef.current);
     }
   };
 

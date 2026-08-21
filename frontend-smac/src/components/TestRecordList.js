@@ -1,202 +1,187 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Tag, Space, Button, Input, DatePicker, Select, message } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Button, DatePicker, Input, message, Select, Space, Table, Tabs, Tag } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
-import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
-const { Option } = Select;
+const resultTag = (result) => (
+  <Tag color={result === 'PASS' || result === 'pass' ? 'green' : 'red'}>
+    {String(result || '-').toUpperCase()}
+  </Tag>
+);
+const numberValue = (value, digits = 2) =>
+  value === null || value === undefined ? '-' : Number(value).toFixed(digits);
 
-const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
-  const t = translations[language];
-  
+const RecordFilters = ({ filters, setFilters, onSearch, loading, t, serialPlaceholder }) => (
+  <Space style={{ marginBottom: 16 }} wrap>
+    <Input
+      placeholder={serialPlaceholder}
+      value={filters.serial}
+      onChange={(event) => setFilters({ ...filters, serial: event.target.value })}
+      style={{ width: 240 }}
+      allowClear
+    />
+    <Select
+      placeholder={t.testResultPlaceholder}
+      value={filters.test_result}
+      onChange={(value) => setFilters({ ...filters, test_result: value })}
+      style={{ width: 130 }}
+      options={[{ value: 'PASS', label: 'PASS' }, { value: 'FAIL', label: 'FAIL' }]}
+      allowClear
+    />
+    <RangePicker
+      value={filters.dateRange}
+      onChange={(dateRange) => setFilters({ ...filters, dateRange })}
+    />
+    <Button type="primary" icon={<SearchOutlined />} onClick={onSearch} loading={loading}>
+      {t.search}
+    </Button>
+    <Button icon={<ReloadOutlined />} onClick={onSearch} loading={loading}>
+      {t.refresh}
+    </Button>
+  </Space>
+);
+
+const SensorRunList = ({ refreshTrigger, t }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    device_id: '',
-    test_result: null,
-    dateRange: null,
-  });
+  const [filters, setFilters] = useState({ serial: '', test_result: null, dateRange: null });
 
-  const fetchRecords = async () => {
+  const fetchRecords = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
-      if (filters.device_id) params.device_id = filters.device_id;
+      if (filters.serial.trim()) params.serial_wle = filters.serial.trim();
       if (filters.test_result) params.test_result = filters.test_result;
       if (filters.dateRange) {
-        params.start_date = filters.dateRange[0].toISOString();
-        params.end_date = filters.dateRange[1].toISOString();
+        params.start_date = filters.dateRange[0].startOf('day').toISOString();
+        params.end_date = filters.dateRange[1].endOf('day').toISOString();
       }
-
-      const response = await testRecordsAPI.getAll(params);
+      const response = await testRecordsAPI.getSensorTestRuns(params);
       setRecords(response.data);
     } catch (error) {
-      message.error(t.loadDataFailed);
       console.error(error);
+      message.error(t.loadDataFailed);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, t.loadDataFailed]);
 
-  useEffect(() => {
-    fetchRecords();
-  }, []);
+  useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
 
-  useEffect(() => {
-    if (onNewRecord) {
-      // 當收到新記錄時重新載入
-      fetchRecords();
-    }
-  }, [onNewRecord]);
-
+  const detailColumns = [
+    { title: t.sequence, dataIndex: 'sequence', width: 70 },
+    { title: t.stage, dataIndex: 'stage' },
+    { title: t.sensorName, dataIndex: 'sensor_name', render: (value) => value || '-' },
+    { title: t.testResult, dataIndex: 'status', render: resultTag },
+    { title: t.temperature, dataIndex: 'temperature_c', render: (value) => numberValue(value) },
+    { title: t.humidity, dataIndex: 'humidity_percent', render: (value) => numberValue(value) },
+    { title: t.pressure, dataIndex: 'pressure_hpa', render: (value) => numberValue(value) },
+    { title: t.gasResistance, dataIndex: 'gas_resistance_ohm', render: (value) => numberValue(value) },
+    { title: t.testTime, dataIndex: 'tested_at', render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+  ];
   const columns = [
-    {
-      title: t.id,
-      dataIndex: 'id',
-      key: 'id',
-      width: 80,
-    },
-    {
-      title: t.serialNumber,
-      dataIndex: 'serial_number',
-      key: 'serial_number',
-    },
-    {
-      title: t.productName,
-      dataIndex: 'product_name',
-      key: 'product_name',
-    },
-    {
-      title: t.deviceId,
-      dataIndex: 'device_id',
-      key: 'device_id',
-    },
-    {
-      title: t.testStation,
-      dataIndex: 'test_station',
-      key: 'test_station',
-    },
-    {
-      title: t.testResult,
-      dataIndex: 'test_result',
-      key: 'test_result',
-      render: (result) => (
-        <Tag color={result === 'PASS' ? 'green' : 'red'}>
-          {result}
-        </Tag>
-      ),
-    },
-    {
-      title: t.voltage,
-      dataIndex: 'voltage',
-      key: 'voltage',
-      render: (val) => val?.toFixed(2) || '-',
-    },
-    {
-      title: t.current,
-      dataIndex: 'current',
-      key: 'current',
-      render: (val) => val?.toFixed(2) || '-',
-    },
-    {
-      title: t.temperature,
-      dataIndex: 'temperature',
-      key: 'temperature',
-      render: (val) => val?.toFixed(1) || '-',
-    },
-    {
-      title: t.testTime,
-      dataIndex: 'test_time',
-      key: 'test_time',
-      render: (time) => dayjs(time).format('YYYY-MM-DD HH:mm:ss'),
-    },
-    {
-      title: t.cloudUpload,
-      dataIndex: 'uploaded_to_cloud',
-      key: 'uploaded_to_cloud',
-      render: (uploaded) => (
-        <Tag color={uploaded ? 'blue' : 'default'}>
-          {uploaded ? t.uploaded : t.notUploaded}
-        </Tag>
-      ),
-    },
+    { title: t.id, dataIndex: 'id', width: 70 },
+    { title: t.serialWle, dataIndex: 'serial_wle' },
+    { title: t.serialWba, dataIndex: 'serial_wba', render: (value) => value || '-' },
+    { title: t.runMode, dataIndex: 'run_mode', render: (value) => value === 'single' ? t.singleTest : t.fullTest },
+    { title: t.requestedStage, dataIndex: 'requested_stage', render: (value) => value || '-' },
+    { title: t.testResult, dataIndex: 'test_result', render: resultTag },
+    { title: t.completedAt, dataIndex: 'completed_at', render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
     {
       title: t.delete,
-      key: 'actions',
-      width: 100,
+      width: 90,
       render: (_, record) => (
-        <Button
-          danger
-          size="small"
-          onClick={async () => {
-            try {
-              await testRecordsAPI.delete(record.id);
-              message.success(t.deletedSuccess || 'Deleted');
-              fetchRecords();
-            } catch (err) {
-              console.error(err);
-              message.error(t.deletedFailed || 'Delete failed');
-            }
-          }}
-        >
+        <Button danger size="small" onClick={async () => {
+          try {
+            await testRecordsAPI.deleteSensorTestRun(record.id);
+            message.success(t.deletedSuccess);
+            fetchRecords();
+          } catch (error) {
+            console.error(error);
+            message.error(t.deletedFailed);
+          }
+        }}>
           {t.delete}
         </Button>
       ),
     },
   ];
 
-  return (
-    <div>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder={t.deviceIdPlaceholder}
-          value={filters.device_id}
-          onChange={(e) => setFilters({ ...filters, device_id: e.target.value })}
-          style={{ width: 200 }}
-        />
-        <Select
-          placeholder={t.testResultPlaceholder}
-          value={filters.test_result}
-          onChange={(value) => setFilters({ ...filters, test_result: value })}
-          style={{ width: 120 }}
-          allowClear
-        >
-          <Option value="PASS">PASS</Option>
-          <Option value="FAIL">FAIL</Option>
-        </Select>
-        <RangePicker
-          value={filters.dateRange}
-          onChange={(dates) => setFilters({ ...filters, dateRange: dates })}
-        />
-        <Button
-          type="primary"
-          icon={<SearchOutlined />}
-          onClick={fetchRecords}
-        >
-          {t.search}
-        </Button>
-        <Button
-          icon={<ReloadOutlined />}
-          onClick={fetchRecords}
-        >
-          {t.refresh}
-        </Button>
-      </Space>
+  return <>
+    <RecordFilters filters={filters} setFilters={setFilters} onSearch={fetchRecords}
+      loading={loading} t={t} serialPlaceholder={t.serialWle} />
+    <Table
+      columns={columns}
+      dataSource={records}
+      rowKey="id"
+      loading={loading}
+      expandable={{
+        expandedRowRender: (record) => <Table columns={detailColumns} dataSource={record.items || []}
+          rowKey="id" pagination={false} size="small" />,
+        rowExpandable: (record) => (record.items || []).length > 0,
+      }}
+      pagination={{ pageSize: 20, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
+    />
+  </>;
+};
 
-      <Table
-        columns={columns}
-        dataSource={records}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          pageSize: 20,
-          showTotal: (total) => `${t.total} ${total} ${t.items}`,
-        }}
-      />
-    </div>
-  );
+const LegacyRecordList = ({ refreshTrigger, t }) => {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({ serial: '', test_result: null, dateRange: null });
+
+  const fetchRecords = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (filters.serial.trim()) params.device_id = filters.serial.trim();
+      if (filters.test_result) params.test_result = filters.test_result;
+      if (filters.dateRange) {
+        params.start_date = filters.dateRange[0].startOf('day').toISOString();
+        params.end_date = filters.dateRange[1].endOf('day').toISOString();
+      }
+      const response = await testRecordsAPI.getAll(params);
+      setRecords(response.data);
+    } catch (error) {
+      console.error(error);
+      message.error(t.loadDataFailed);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, t.loadDataFailed]);
+
+  useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
+
+  const columns = [
+    { title: t.id, dataIndex: 'id', width: 70 },
+    { title: t.serialNumber, dataIndex: 'serial_number' },
+    { title: t.productName, dataIndex: 'product_name' },
+    { title: t.deviceId, dataIndex: 'device_id' },
+    { title: t.testStation, dataIndex: 'test_station' },
+    { title: t.testResult, dataIndex: 'test_result', render: resultTag },
+    { title: t.voltage, dataIndex: 'voltage', render: (value) => numberValue(value) },
+    { title: t.current, dataIndex: 'current', render: (value) => numberValue(value) },
+    { title: t.temperature, dataIndex: 'temperature', render: (value) => numberValue(value, 1) },
+    { title: t.testTime, dataIndex: 'test_time', render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+  ];
+
+  return <>
+    <RecordFilters filters={filters} setFilters={setFilters} onSearch={fetchRecords}
+      loading={loading} t={t} serialPlaceholder={t.deviceIdPlaceholder} />
+    <Table columns={columns} dataSource={records} rowKey="id" loading={loading}
+      pagination={{ pageSize: 20, showTotal: (total) => `${t.total} ${total} ${t.items}` }} />
+  </>;
+};
+
+const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
+  const t = translations[language];
+  return <Tabs defaultActiveKey="sensor" items={[
+    { key: 'sensor', label: t.sensorRuns, children: <SensorRunList refreshTrigger={onNewRecord} t={t} /> },
+    { key: 'legacy', label: t.legacyRecords, children: <LegacyRecordList refreshTrigger={onNewRecord} t={t} /> },
+  ]} />;
 };
 
 export default TestRecordList;
