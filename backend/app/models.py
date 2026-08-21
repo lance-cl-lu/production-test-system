@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, UniqueConstraint, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -51,3 +52,43 @@ class CloudUploadLog(Base):
     
     def __repr__(self):
         return f"<CloudUploadLog {self.upload_time} - {self.status}>"
+
+
+class SensorTestRun(Base):
+    """一次完整或單項 Sensor IQC 執行。"""
+    __tablename__ = "sensor_test_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    serial_wle = Column(String(100), index=True, nullable=False)
+    serial_wba = Column(String(100), index=True)
+    run_mode = Column(String(20), nullable=False, comment="full/single")
+    requested_stage = Column(String(64))
+    test_result = Column(String(20), nullable=False, comment="PASS/FAIL")
+    started_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    items = relationship(
+        "SensorTestItem", back_populates="run", cascade="all, delete-orphan",
+        order_by="SensorTestItem.sequence",
+    )
+
+
+class SensorTestItem(Base):
+    """Sensor IQC 逐項結果；量測值保留 sensor_name，避免來源混淆。"""
+    __tablename__ = "sensor_test_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("sensor_test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    stage = Column(String(64), nullable=False)
+    sensor_name = Column(String(32), index=True)
+    status = Column(String(20), nullable=False)
+    temperature_c = Column(Float)
+    humidity_percent = Column(Float)
+    pressure_hpa = Column(Float)
+    gas_resistance_ohm = Column(Float)
+    detail_json = Column(Text)
+    tested_at = Column(DateTime, nullable=False)
+
+    run = relationship("SensorTestRun", back_populates="items")

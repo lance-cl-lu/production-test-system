@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Button, Row, Col, Tag, message, Input, Space, Typography, Modal } from 'antd';
 import { 
   PlayCircleOutlined, 
@@ -7,7 +7,7 @@ import {
   LoadingOutlined,
   ScanOutlined,
 } from '@ant-design/icons';
-import { translations, i18n } from '../i18n/locales';
+import { translations } from '../i18n/locales';
 import { testRecordsAPI } from '../services/api';
 
 const { Title, Text } = Typography;
@@ -15,6 +15,12 @@ const { Title, Text } = Typography;
 // 讀取序號的提示訊息共用同一個 key，後續訊息會就地取代它而非另開一則
 const READ_SERIAL_MSG_KEY = 'sensor-read-serial';
 const READ_SERIAL_TIMEOUT_MS = 30000;
+
+const getLedOffStage = (stage) => {
+  if (stage === 'testGreenLED') return 'testGreenLEDOff';
+  if (stage === 'testOrangeLED') return 'testOrangeLEDOff';
+  return null;
+};
 
 const SensorIQC = ({ language = 'zh-TW' }) => {
   const t = translations[language];
@@ -28,16 +34,16 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const serialPollRef = useRef(null);
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
+  const testResultsRef = useRef({});
+  const testDataRef = useRef({ sensors: [], sensorMeasurements: {} });
+  const completionExpectedRef = useRef([]);
+  const completionShownRef = useRef(false);
   const [testResults, setTestResults] = useState({
     getSensorIC: null,
     sht41: null,
     ens210: null,
     lps22df: null,
     bme690: null,
-    getHumidity: null,
-    getTemperature: null,
-    getPressure: null,
-    testLeak: null,
     testButton: null,
     testGreenLED: null,
     testOrangeLED: null,
@@ -66,13 +72,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     { key: 'testSPI', name: t.sensorIQC.testSPI, icon: '🔄' },
   ];
 
-  const getLedOffStage = (stage) => {
-    if (stage === 'testGreenLED') return 'testGreenLEDOff';
-    if (stage === 'testOrangeLED') return 'testOrangeLEDOff';
-    return null;
-  };
-
-  const reportLedDecision = async ({ serial, stage, seen }) => {
+  const reportLedDecision = useCallback(async ({ serial, stage, seen }) => {
     const ledOffStage = getLedOffStage(stage);
     let ledOffOk = false;
 
@@ -95,32 +95,34 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         led_off_ok: ledOffOk,
       },
     });
-  };
+  }, [t]);
 
   const resetTest = () => {
-    setTestResults({
+    const emptyResults = {
       getSensorIC: null,
       sht41: null,
       ens210: null,
       lps22df: null,
       bme690: null,
-      getHumidity: null,
-      getTemperature: null,
-      getPressure: null,
-      testLeak: null,
       testButton: null,
       testGreenLED: null,
       testOrangeLED: null,
       testBuzzer: null,
       testSPI: null,
-    });
-    setTestData({
+    };
+    const emptyData = {
       sensors: [],
       sensorMeasurements: {},
       humidity: 0,
       temperature: 0,
       pressure: 0,
-    });
+    };
+    testResultsRef.current = emptyResults;
+    testDataRef.current = emptyData;
+    completionExpectedRef.current = [];
+    completionShownRef.current = false;
+    setTestResults(emptyResults);
+    setTestData(emptyData);
   };
 
   // 監聽 WebSocket 事件
@@ -150,12 +152,20 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         return;
       }
 
+      if (payload.type === 'sensor_test_saved' && payload.data.serial === serialWle) {
+        message.success(t.sensorIQC.saveSuccess || 'Test record saved');
+        return;
+      }
+
       // 只處理 sensor_event 類型的事件
       if (payload.type === 'sensor_event') {
         const { serial, stage, status, detail } = payload.data;
 
         // 只更新當前測試的 SN
         if (serial === serialWle) {
+          if (stage === 'testComplete') {
+            completionExpectedRef.current = detail?.expected_stages || [];
+          }
           if (stage === 'testBuzzer' && status === 'testing' &&
               buzzerPromptRef.current !== serial) {
             buzzerPromptRef.current = serial;
@@ -195,7 +205,13 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             }
           }
 
-          setTestResults(prev => ({ ...prev, [stage]: status }));
+          const newResults = stage === 'testComplete'
+            ? testResultsRef.current
+            : { ...testResultsRef.current, [stage]: status };
+          testResultsRef.current = newResults;
+          if (stage !== 'testComplete') {
+            setTestResults(newResults);
+          }
 
           if (status === 'pass' || status === 'fail') {
             setRunningStage(prev => (prev === stage ? null : prev));
@@ -217,7 +233,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                   : [...prev.sensors, detail.sensor];
               }
 
-              return {
+              const nextData = {
                 ...prev,
                 ...detail,
                 sensors: nextSensors,
@@ -226,24 +242,26 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                   [stage]: detail,
                 },
               };
+              testDataRef.current = nextData;
+              return nextData;
             });
           }
 
-          // 檢查所有測試是否完成
-          const newResults = { ...testResults, [stage]: status };
-          const allStages = testItems.map(item => item.key);
-          const isFinished = allStages.every(s => newResults[s] === 'pass' || newResults[s] === 'fail');
+          // watcher 會告知本次實際執行的項目；不存在的 IC 不納入完成判斷。
+          const allStages = completionExpectedRef.current;
+          const isFinished = allStages.length > 0 &&
+            allStages.every(s => newResults[s] === 'pass' || newResults[s] === 'fail');
 
-          if (isFinished) {
+          if (isFinished && !completionShownRef.current) {
+            completionShownRef.current = true;
             setTesting(false);
+            setRunningStage(null);
             const allPassed = allStages.every(s => newResults[s] === 'pass');
             if (allPassed) {
               message.success(t.sensorIQC.testPassed);
             } else {
               message.error(t.sensorIQC.testFailed);
             }
-            // 測試結束後自動保存結果
-            saveTestRecord(serial, newResults, { ...testData, ...detail });
           }
         }
       }
@@ -259,7 +277,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       clearInterval(serialPollRef.current);
       clearTimeout(readTimeoutRef.current);
     };
-  }, [serialWle, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
+  }, [serialWle, t, reportLedDecision]);
 
   const handleReadSerial = async () => {
     // 重新讀序號時，先把先前測試狀態全部清掉，避免沿用舊的 PASS/FAIL
@@ -325,8 +343,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     const sn = serialWle.trim();
     if (!sn) return;
 
+    resetTest();
     setRunningStage(stageKey);
-    setTestResults(prev => ({ ...prev, [stageKey]: 'testing' }));
+    testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'testing' };
+    setTestResults(testResultsRef.current);
 
     try {
       await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
@@ -352,41 +372,6 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       console.error('Failed to start sensor test:', error);
       message.error(t.sensorIQC.startFailed || 'Failed to start test');
       setTesting(false);
-    }
-  };
-
-  // 將保存記錄的邏輯提取為獨立函式
-  const saveTestRecord = async (sn, currentResults, currentData) => {
-    let allPassed = true;
-    Object.values(currentResults).forEach(result => {
-      if (result !== 'pass') allPassed = false;
-    });
-
-    // 保存測試結果到資料庫
-    try {
-      const finalResult = allPassed ? 'PASS' : 'FAIL';
-      
-      await testRecordsAPI.create({
-        device_id: 'SENSOR-001',
-        product_name: 'Sensor Device',
-        serial_number: sn,
-        test_station: 'Sensor IQC',
-        test_result: finalResult,
-        test_time: new Date().toISOString(), // 使用 ISO 格式
-        temperature: parseFloat(currentData.temperature) || null,
-        test_data: JSON.stringify({
-          serial_wba: serialWba,
-          sensors: currentData.sensors,
-          humidity: currentData.humidity,
-          temperature: currentData.temperature,
-          pressure: currentData.pressure,
-          test_items: currentResults,
-        }),
-      });
-      message.success(t.sensorIQC.saveSuccess || 'Test record saved');
-    } catch (error) {
-      console.error('Failed to save test record:', error);
-      message.error(t.sensorIQC.saveFailed);
     }
   };
 
@@ -437,6 +422,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         return '';
     }
   };
+
+  const sensorKeys = ['sht41', 'ens210', 'lps22df', 'bme690'];
+  const probeFinished = testResults.getSensorIC === 'pass' || testResults.getSensorIC === 'fail';
+  const visibleTestItems = testItems.filter(item =>
+    !probeFinished || !sensorKeys.includes(item.key) || testData.sensors.includes(item.key)
+  );
 
   return (
     <div>
@@ -492,8 +483,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
       <Card style={{ marginTop: 24 }} title={t.sensorIQC.testItems}>
         <Row gutter={[8, 8]}>
-          {[testItems.filter((item) => ['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key)),
-            testItems.filter((item) => !['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key))]
+          {[visibleTestItems.filter((item) => ['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key)),
+            visibleTestItems.filter((item) => !['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key))]
             .map((columnItems, columnIndex) => (
               <Col xs={24} lg={12} key={columnIndex}>
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -538,14 +529,14 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
             <Title level={4}>{t.sensorIQC.summary}</Title>
             <Text>
-              {t.sensorIQC.passed}: {Object.values(testResults).filter(r => r === 'pass').length} / {testItems.length}
+              {t.sensorIQC.passed}: {visibleTestItems.filter(item => testResults[item.key] === 'pass').length} / {visibleTestItems.length}
             </Text>
             <Text>
-              {t.sensorIQC.failed}: {Object.values(testResults).filter(r => r === 'fail').length} / {testItems.length}
+              {t.sensorIQC.failed}: {visibleTestItems.filter(item => testResults[item.key] === 'fail').length} / {visibleTestItems.length}
             </Text>
             <Text strong>
               {t.sensorIQC.finalResult}: {' '}
-              {Object.values(testResults).every(r => r === 'pass') ? (
+              {completionExpectedRef.current.length > 0 && completionExpectedRef.current.every(key => testResults[key] === 'pass') ? (
                 <Tag icon={<CheckCircleOutlined />} color="success">{t.sensorIQC.pass}</Tag>
               ) : (
                 <Tag icon={<CloseCircleOutlined />} color="error">{t.sensorIQC.fail}</Tag>

@@ -21,6 +21,34 @@
 | created_at | DATETIME | 建立時間 | DEFAULT NOW() |
 | updated_at | DATETIME | 更新時間 | DEFAULT NOW(), ON UPDATE NOW() |
 
+## Sensor IQC 測試資料
+
+Sensor IQC 不再把不同 IC 的量測值塞進 `test_records.temperature`。每次完整或單項測試
+寫入一筆 `sensor_test_runs`，實際執行的每個測項則寫入多筆 `sensor_test_items`。
+
+### sensor_test_runs
+
+| 欄位 | 類型 | 說明 |
+|---|---|---|
+| serial_wle / serial_wba | VARCHAR | 同一組裝置的兩組 UID |
+| run_mode | VARCHAR | `full` 或 `single` |
+| requested_stage | VARCHAR | 單項測試指定的項目 |
+| test_result | VARCHAR | 本次實際測項的 PASS/FAIL |
+| started_at / completed_at | DATETIME | 測試開始與完成時間 |
+
+### sensor_test_items
+
+| 欄位 | 類型 | 說明 |
+|---|---|---|
+| run_id / sequence | INTEGER | 所屬測試與實際執行順序 |
+| stage / sensor_name | VARCHAR | 測項及數值來源 IC |
+| status | VARCHAR | 該項 pass/fail |
+| temperature_c | FLOAT | 該 IC 的溫度 |
+| humidity_percent | FLOAT | 該 IC 的濕度 |
+| pressure_hpa | FLOAT | 該 IC 的壓力 |
+| gas_resistance_ohm | FLOAT | 該 IC 的氣體電阻 |
+| detail_json | TEXT | 其餘原始測試資料 |
+
 ### cloud_upload_logs (雲端上傳日誌)
 
 | 欄位 | 類型 | 說明 | 約束 |
@@ -39,7 +67,8 @@
 
 ## 關聯
 
-目前版本為簡化設計，沒有外鍵關聯。未來可擴展:
+`sensor_test_items.run_id` 以外鍵關聯 `sensor_test_runs.id`，刪除 run 時會一併刪除明細。
+其他既有資料表仍維持簡化設計，未來可擴展：
 - 設備資料表 (devices)
 - 產品資料表 (products)
 - 測試站別資料表 (test_stations)

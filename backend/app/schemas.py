@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 class TestRecordBase(BaseModel):
@@ -60,3 +60,36 @@ class WebSocketMessage(BaseModel):
     type: str  # "test_result", "system_status", etc.
     data: Dict[str, Any]
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class SensorTestItemResponse(BaseModel):
+    id: int
+    sequence: int
+    stage: str
+    sensor_name: Optional[str]
+    status: str
+    temperature_c: Optional[float]
+    humidity_percent: Optional[float]
+    pressure_hpa: Optional[float]
+    gas_resistance_ohm: Optional[float]
+    detail_json: Optional[str]
+    tested_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SensorTestRunResponse(BaseModel):
+    id: int
+    serial_wle: str
+    serial_wba: Optional[str]
+    run_mode: str
+    requested_stage: Optional[str]
+    test_result: str
+    started_at: datetime
+    completed_at: datetime
+    created_at: datetime
+    items: List[SensorTestItemResponse]
+
+    class Config:
+        from_attributes = True

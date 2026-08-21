@@ -3,7 +3,7 @@
  *
  * Sensor IQC 測試監看程式
  *
- * 序號讀取已串接 UART（7 個測試階段仍為模擬）
+ * 序號讀取與 Sensor/HVF 測試均串接 UART
  * serial port 在啟動時開一次並常駐，避免反覆開關 tty 造成裝置重置
  *
  * 編譯：make sensor_watcher
@@ -11,7 +11,7 @@
  *
  * 流程：
  *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "SEARCH" 或 "TEST <SERIAL>"
- *   2. SEARCH 讀取 WLE / WBA 兩組序號；TEST 依序跑 7 個測試階段
+ *   2. SEARCH 讀取 WLE / WBA；TEST/STAGE 都先探測 Sensor IC 再執行
  *   3. 結果以 HTTP POST 送到後端，再由後端 WebSocket 廣播給前端
  */
 
@@ -48,11 +48,12 @@ static void handle_signal(int signum) {
 
 const char *stages[] = {
     "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
-    "getHumidity", "getTemperature",
-    "getPressure", "testLeak", "testButton", "testGreenLED", "testOrangeLED",
-    "testBuzzer", "testSPI",
+    "testButton", "testGreenLED", "testOrangeLED", "testBuzzer", "testSPI",
 };
-const int num_stages = 14;
+const int num_stages = 10;
+
+static uart_hvf_sensor_result_t last_sensor_probe;
+static char last_serial_wba[128] = "";
 
 static const char *pass_or_fail(double pass_ratio) {
     double r = (double)rand() / (double)RAND_MAX;
@@ -106,7 +107,7 @@ int post_json(const char *url, const char *json_payload) {
 
 static void send_event(const char *serial, const char *stage,
                        const char *status, const char *detail_fields) {
-    char json[512];
+    char json[1024];
     char timestamp[32];
     now_iso(timestamp, sizeof(timestamp));
 
@@ -148,7 +149,9 @@ void run_test_stage(const char *stage, const char *serial) {
         }
 
         uart_hvf_sensor_result_t sensors;
+        memset(&sensors, 0, sizeof(sensors));
         int probe_ok = uart_hvf_probe_sensors(uart_fd, &sensors) == 0;
+        last_sensor_probe = sensors;
         const char *status = probe_ok && sensors.probe_completed ? "pass" : "fail";
 
         snprintf(detail, sizeof(detail),
@@ -287,28 +290,8 @@ void run_test_stage(const char *stage, const char *serial) {
         return;
     }
 
-    sleep(1);  // 模擬量測耗時；接 UART 後換成實際交握
-
-    const char *status = pass_or_fail(PASS_RATIO);
-
-    if (strcmp(stage, "getHumidity") == 0) {
-        snprintf(detail, sizeof(detail), "\"humidity\":%.1f", 40.0 + (rand() % 300) / 10.0);
-    } else if (strcmp(stage, "getTemperature") == 0) {
-        snprintf(detail, sizeof(detail), "\"temperature\":%.1f", 20.0 + (rand() % 150) / 10.0);
-    } else if (strcmp(stage, "getPressure") == 0) {
-        snprintf(detail, sizeof(detail), "\"pressure\":%.1f", 990.0 + (rand() % 400) / 10.0);
-    } else if (strcmp(stage, "testLeak") == 0) {
-        snprintf(detail, sizeof(detail), "\"leak_rate\":%.3f", (rand() % 50) / 1000.0);
-    } else if (strcmp(stage, "testGreenLED") == 0) {
-        snprintf(detail, sizeof(detail), "\"led_color\":\"green\",\"lux\":%d",
-                 100 + (rand() % 400));
-    } else if (strcmp(stage, "testOrangeLED") == 0) {
-        snprintf(detail, sizeof(detail), "\"led_color\":\"orange\",\"lux\":%d",
-                 100 + (rand() % 400));
-    }
-
-    send_event(serial, stage, status, detail);
-    printf("%s  {%s}\n", status, detail);
+    send_event(serial, stage, "fail", "\"error\":\"unsupported stage\"");
+    printf("fail  {unsupported stage}\n");
 }
 
 // 依序讀取 WLE 與 WBA 兩組序號，一併回報給後端
@@ -341,6 +324,8 @@ void handle_search_command(void) {
         printf("[SEARCH] WBA = %s\n", serial_wba);
     }
 
+    snprintf(last_serial_wba, sizeof(last_serial_wba), "%s", serial_wba);
+
     snprintf(payload, sizeof(payload),
              "{\"serial_wle\":\"%s\",\"serial_wba\":\"%s\"}",
              serial_wle, serial_wba);
@@ -352,17 +337,77 @@ void handle_search_command(void) {
     }
 }
 
+static int sensor_is_detected(const char *stage) {
+    if (strcmp(stage, "sht41") == 0) return last_sensor_probe.sht41;
+    if (strcmp(stage, "ens210") == 0) return last_sensor_probe.ens210;
+    if (strcmp(stage, "lps22df") == 0) return last_sensor_probe.lps22df;
+    if (strcmp(stage, "bme690") == 0) return last_sensor_probe.bme690;
+    return 1;
+}
+
+static void send_test_complete(const char *serial, const char *mode,
+                               const char *requested_stage,
+                               const char *expected_json) {
+    char detail[640];
+    snprintf(detail, sizeof(detail),
+             "\"run_mode\":\"%s\",\"requested_stage\":\"%s\","
+             "\"serial_wba\":\"%s\",\"expected_stages\":%s",
+             mode, requested_stage ? requested_stage : "", last_serial_wba, expected_json);
+    send_event(serial, "testComplete", "pass", detail);
+}
+
 void handle_test_command(const char *serial) {
     printf("\n========================================\n");
     printf("[TEST] Starting sensor test: %s\n", serial);
     printf("========================================\n");
 
-    for (int i = 0; i < num_stages; i++) {
-        run_test_stage(stages[i], serial);
+    memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
+    run_test_stage("getSensorIC", serial);
+
+    char expected[384] = "[\"getSensorIC\"";
+    const char *ordered_stages[] = {
+        "sht41", "ens210", "lps22df", "bme690",
+        "testButton", "testGreenLED", "testOrangeLED", "testBuzzer", "testSPI"
+    };
+    for (size_t i = 0; i < sizeof(ordered_stages) / sizeof(ordered_stages[0]); i++) {
+        const char *stage = ordered_stages[i];
+        if (!sensor_is_detected(stage)) {
+            printf("[TEST] %-16s ... skipped (not detected)\n", stage);
+            continue;
+        }
+        strncat(expected, ",\"", sizeof(expected) - strlen(expected) - 1);
+        strncat(expected, stage, sizeof(expected) - strlen(expected) - 1);
+        strncat(expected, "\"", sizeof(expected) - strlen(expected) - 1);
+        run_test_stage(stage, serial);
     }
+    strncat(expected, "]", sizeof(expected) - strlen(expected) - 1);
+    send_test_complete(serial, "full", "", expected);
 
     printf("========================================\n");
     printf("[TEST] Completed: %s\n\n", serial);
+}
+
+static void handle_stage_command(const char *stage, const char *serial) {
+    memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
+    run_test_stage("getSensorIC", serial);
+
+    if (strcmp(stage, "getSensorIC") == 0) {
+        send_test_complete(serial, "single", stage, "[\"getSensorIC\"]");
+        return;
+    }
+
+    if (!sensor_is_detected(stage)) {
+        char detail[160];
+        snprintf(detail, sizeof(detail),
+                 "\"sensor\":\"%s\",\"detected\":false,\"error\":\"sensor not detected\"", stage);
+        send_event(serial, stage, "fail", detail);
+    } else {
+        run_test_stage(stage, serial);
+    }
+
+    char expected[192];
+    snprintf(expected, sizeof(expected), "[\"getSensorIC\",\"%s\"]", stage);
+    send_test_complete(serial, "single", stage, expected);
 }
 
 static int is_valid_stage(const char *stage) {
@@ -399,7 +444,11 @@ void process_command(const char *line) {
             return;
         }
         printf("\n[STAGE] %s for %s\n", stage, serial);
-        run_test_stage(stage, serial);
+        if (strcmp(stage, "testGreenLEDOff") == 0 || strcmp(stage, "testOrangeLEDOff") == 0) {
+            run_test_stage(stage, serial);
+        } else {
+            handle_stage_command(stage, serial);
+        }
         printf("\n");
     } else if (sscanf(clean_line, "TEST %127s", serial) == 1) {
         handle_test_command(serial);

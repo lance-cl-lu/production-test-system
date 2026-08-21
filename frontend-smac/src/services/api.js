@@ -43,6 +43,7 @@ export const testRecordsAPI = {
   getLatestSensorSerial: () => api.get('/api/sensor/serial-found/latest'),
   runSensorStage: (data) => api.post('/api/sensor/run-stage', data),
   reportSensorEvent: (data) => api.post('/api/sensor/events', data),
+  getSensorTestRuns: (params) => api.get('/api/sensor/test-runs', { params }),
 };
 
 // Health Check

@@ -26,7 +26,7 @@ def get_db():
 def init_db():
     """Initialize database tables"""
     Base.metadata.create_all(bind=engine)
-    # Ensure missing columns exist (simple migration)
+    # 舊 test_records 的相容性 migration；Sensor IQC 新表由 metadata 建立。
     try:
         insp = inspect(engine)
         cols = [c['name'] for c in insp.get_columns('test_records')]
