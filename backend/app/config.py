@@ -15,7 +15,16 @@ class Settings(BaseSettings):
     UPLOAD_SCHEDULE_HOURS: int = 1
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://[::1]:3000",
+        "http://[::1]:3001",
+        "null",
+    ]
+    CORS_ORIGIN_REGEX: str = r"^https?://(localhost|127\.0\.0\.1|\[::1\]):\d+$"
     
     class Config:
         env_file = ".env"

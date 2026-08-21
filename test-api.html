@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Sensor API Test</h1>
+    <button onclick="testReadSerial()">Test Read Serial</button>
+    <button onclick="testRunStage()">Test Run Stage</button>
+    <pre id="output"></pre>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const output = document.getElementById('output');
+
+        async function testReadSerial() {
+            output.textContent = 'Testing read serial...\n';
+            try {
+                const resp = await fetch(`${API_URL}/api/sensor/read-serial`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                output.textContent += `Read Serial Response (${resp.status}):\n${JSON.stringify(data, null, 2)}\n`;
+            } catch (err) {
+                output.textContent += `Error: ${err.message}\n`;
+            }
+        }
+
+        async function testRunStage() {
+            output.textContent = 'Testing run stage...\n';
+            try {
+                const resp = await fetch(`${API_URL}/api/sensor/run-stage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        serial: 'HTML-TEST-001',
+                        stage: 'testButton'
+                    })
+                });
+                const data = await resp.json();
+                output.textContent += `Run Stage Response (${resp.status}):\n${JSON.stringify(data, null, 2)}\n`;
+            } catch (err) {
+                output.textContent += `Error: ${err.message}\n`;
+            }
+        }
+    </script>
+</body>
+</html>

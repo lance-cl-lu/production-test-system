@@ -282,37 +282,33 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     try {
       await testRecordsAPI.readSensorSerial();
-      serialPollRef.current = setInterval(async () => {
-        try {
-          const response = await testRecordsAPI.getLatestSensorSerial();
-          const { serial_wle: latestWle, serial_wba: latestWba } = response.data;
-          if (latestWle) {
-            clearInterval(serialPollRef.current);
-            clearTimeout(readTimeoutRef.current);
-            setSerialWle(latestWle);
-            setSerialWba(latestWba || '');
-            setReadingSerial(false);
-            message.success({
-              content: `WLE: ${latestWle}`,
-              key: READ_SERIAL_MSG_KEY,
-              duration: 3,
-            });
-          }
-        } catch (pollError) {
-          console.error('Failed to poll latest serial:', pollError);
-        }
-      }, 500);
     } catch (error) {
-      console.error('Failed to read serial:', error);
-      clearInterval(serialPollRef.current);
-      clearTimeout(readTimeoutRef.current);
-      message.error({
-        content: t.sensorIQC.readSerialFailed,
-        key: READ_SERIAL_MSG_KEY,
-        duration: 3,
-      });
-      setReadingSerial(false);
+      // The trigger request can fail transiently even though the watcher later
+      // succeeds in reading the actual serial. Keep polling for the real result
+      // and avoid showing a false "read serial failed" toast immediately.
+      console.error('Failed to trigger serial read:', error);
     }
+
+    serialPollRef.current = setInterval(async () => {
+      try {
+        const response = await testRecordsAPI.getLatestSensorSerial();
+        const { serial_wle: latestWle, serial_wba: latestWba } = response.data;
+        if (latestWle) {
+          clearInterval(serialPollRef.current);
+          clearTimeout(readTimeoutRef.current);
+          setSerialWle(latestWle);
+          setSerialWba(latestWba || '');
+          setReadingSerial(false);
+          message.success({
+            content: `WLE: ${latestWle}`,
+            key: READ_SERIAL_MSG_KEY,
+            duration: 3,
+          });
+        }
+      } catch (pollError) {
+        console.error('Failed to poll latest serial:', pollError);
+      }
+    }, 500);
   };
 
   const runSingleStage = async (stageKey) => {
@@ -341,7 +337,6 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     message.info(t.sensorIQC.testStarted);
 
     try {
-      // 呼叫後端 API 來啟動測試
       await testRecordsAPI.startSensorTest({ serial: sn });
     } catch (error) {
       console.error('Failed to start sensor test:', error);
