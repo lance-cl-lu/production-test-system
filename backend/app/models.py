@@ -2,6 +2,11 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, 
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+import uuid
+
+
+def new_uuid():
+    return str(uuid.uuid4())
 
 
 class TestRecord(Base):
@@ -59,6 +64,7 @@ class SensorTestRun(Base):
     __tablename__ = "sensor_test_runs"
 
     id = Column(Integer, primary_key=True, index=True)
+    sync_uuid = Column(String(36), unique=True, nullable=False, default=new_uuid, index=True)
     serial_wle = Column(String(100), index=True, nullable=False)
     serial_wba = Column(String(100), index=True)
     run_mode = Column(String(20), nullable=False, comment="full/single")
@@ -79,6 +85,7 @@ class SensorTestItem(Base):
     __tablename__ = "sensor_test_items"
 
     id = Column(Integer, primary_key=True, index=True)
+    sync_uuid = Column(String(36), unique=True, nullable=False, default=new_uuid, index=True)
     run_id = Column(Integer, ForeignKey("sensor_test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
     sequence = Column(Integer, nullable=False)
     stage = Column(String(64), nullable=False)
@@ -92,3 +99,19 @@ class SensorTestItem(Base):
     tested_at = Column(DateTime, nullable=False)
 
     run = relationship("SensorTestRun", back_populates="items")
+
+
+class CloudSyncOutbox(Base):
+    """Durable local queue for eventually-consistent cloud synchronization."""
+    __tablename__ = "cloud_sync_outbox"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_uuid = Column(String(36), nullable=False, index=True)
+    operation = Column(String(20), nullable=False, default="upsert")
+    payload_json = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="PENDING", index=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    uploaded_at = Column(DateTime)

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     CLOUD_UPLOAD_ENABLED: bool = False
     CLOUD_API_URL: str = ""
     CLOUD_API_KEY: str = ""
+    CLOUD_SYNC_BATCH_SIZE: int = 100
+    CLOUD_SYNC_INTERVAL_SECONDS: int = 10
     
     # Scheduler
     UPLOAD_SCHEDULE_HOURS: int = 1

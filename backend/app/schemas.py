@@ -64,6 +64,7 @@ class WebSocketMessage(BaseModel):
 
 class SensorTestItemResponse(BaseModel):
     id: int
+    sync_uuid: str
     sequence: int
     stage: str
     sensor_name: Optional[str]
@@ -81,6 +82,7 @@ class SensorTestItemResponse(BaseModel):
 
 class SensorTestRunResponse(BaseModel):
     id: int
+    sync_uuid: str
     serial_wle: str
     serial_wba: Optional[str]
     run_mode: str

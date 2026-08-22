@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, inspect, text
+import uuid
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
@@ -61,4 +62,31 @@ def init_db():
             """))
     except Exception:
         # Sensor tables 尚未建立或 DB dialect 不支援時，不阻斷啟動。
+        pass
+
+    # Existing installations need additive UUID columns because create_all does not
+    # alter tables. UUIDs are the stable identity used for idempotent cloud upserts.
+    try:
+        insp = inspect(engine)
+        with engine.begin() as conn:
+            for table_name in ("sensor_test_runs", "sensor_test_items"):
+                columns = {column["name"] for column in insp.get_columns(table_name)}
+                if "sync_uuid" not in columns:
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN sync_uuid VARCHAR(36) NULL"
+                    ))
+                missing_ids = conn.execute(text(
+                    f"SELECT id FROM {table_name} WHERE sync_uuid IS NULL OR sync_uuid = ''"
+                )).scalars().all()
+                for record_id in missing_ids:
+                    conn.execute(text(
+                        f"UPDATE {table_name} SET sync_uuid = :sync_uuid WHERE id = :id"
+                    ), {"sync_uuid": str(uuid.uuid4()), "id": record_id})
+                indexes = {index["name"] for index in inspect(engine).get_indexes(table_name)}
+                index_name = f"uq_{table_name}_sync_uuid"
+                if index_name not in indexes:
+                    conn.execute(text(
+                        f"CREATE UNIQUE INDEX {index_name} ON {table_name} (sync_uuid)"
+                    ))
+    except Exception:
         pass

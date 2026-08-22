@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Literal, List
 from app.routers.websocket import manager
 from app.database import get_db
-from app.models import SensorTestRun, SensorTestItem
+from app.models import CloudSyncOutbox, SensorTestRun, SensorTestItem
 from app.schemas import SensorTestRunResponse
 import json
 import logging
@@ -23,6 +23,42 @@ SENSOR_RESULT_STAGES = [
     "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
     "testButton", "testGreenLED", "testOrangeLED", "testBuzzer", "testSPI",
 ]
+
+
+def _cloud_payload(run: SensorTestRun) -> Dict[str, Any]:
+    return {
+        "sync_uuid": run.sync_uuid,
+        "serial_wle": run.serial_wle,
+        "serial_wba": run.serial_wba,
+        "run_mode": run.run_mode,
+        "requested_stage": run.requested_stage,
+        "test_result": run.test_result,
+        "started_at": run.started_at.isoformat(),
+        "completed_at": run.completed_at.isoformat(),
+        "items": [{
+            "sync_uuid": item.sync_uuid,
+            "sequence": item.sequence,
+            "stage": item.stage,
+            "sensor_name": item.sensor_name,
+            "status": item.status,
+            "temperature_c": item.temperature_c,
+            "humidity_percent": item.humidity_percent,
+            "pressure_hpa": item.pressure_hpa,
+            "gas_resistance_ohm": item.gas_resistance_ohm,
+            "detail_json": item.detail_json,
+            "tested_at": item.tested_at.isoformat(),
+        } for item in run.items],
+    }
+
+
+def _enqueue_cloud_sync(db: Session, run: SensorTestRun) -> None:
+    db.flush()
+    db.add(CloudSyncOutbox(
+        entity_type="sensor_test_run",
+        entity_uuid=run.sync_uuid,
+        operation="upsert",
+        payload_json=json.dumps(_cloud_payload(run), ensure_ascii=False),
+    ))
 
 # 和 pcba_events.py 類似的結構，但針對 Sensor
 SHARED_FILE_PATH = "../shared/sensor_test.txt"
@@ -147,6 +183,7 @@ async def sensor_serial_found(request: SerialFoundRequest, db: Session = Depends
         completed_at=started_at,
     )
     db.add(db_run)
+    _enqueue_cloud_sync(db, db_run)
     db.commit()
     db.refresh(db_run)
     active_sensor_run_ids[serial_wle] = db_run.id
@@ -312,6 +349,7 @@ def _finalize_sensor_session(serial: str, detail: Dict[str, Any], completed_at: 
             db_run.test_result = "PENDING"
 
     db_run.completed_at = completed_at
+    _enqueue_cloud_sync(db, db_run)
     db.commit()
     db.refresh(db_run)
     return db_run
@@ -372,6 +410,7 @@ def _save_sensor_session_item(serial: str, stage: str, status: str,
                 db_run.test_result = "PENDING"
         else:
             db_run.test_result = "PENDING"
+    _enqueue_cloud_sync(db, db_run)
     db.commit()
     db.refresh(db_run)
     return db_run

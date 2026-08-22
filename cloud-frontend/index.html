@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Production Test Cloud</title>
+  <style>
+    body{font:14px system-ui;margin:0;background:#f5f7fa;color:#1f2937}header{background:#172554;color:white;padding:18px 28px;font-size:20px}
+    main{padding:24px}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.card{background:white;border-radius:8px;padding:18px;box-shadow:0 1px 4px #0001}.value{font-size:28px;font-weight:700;margin-top:8px}
+    .table-wrap{overflow:auto;margin-top:20px;background:white;border-radius:8px}table{border-collapse:collapse;min-width:1900px;width:100%}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:center;white-space:nowrap}th{background:#f8fafc;position:sticky;top:0}.pass{color:#15803d}.fail{color:#b91c1c}.pending{color:#a16207}
+    button{padding:8px 14px;margin-bottom:12px}@media(max-width:800px){.stats{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body><header>Production Test Cloud Records</header><main>
+  <button onclick="loadAll()">重新整理</button><div class="stats" id="stats"></div>
+  <div class="table-wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+</main><script src="/config.js"></script><script>
+const api=window.CLOUD_API_URL||`http://${location.hostname}:8100`; const stages=['getSensorIC','sht41','ens210','lps22df','bme690','testButton','testGreenLED','testOrangeLED','testBuzzer','testSPI'];
+const labels={getSensorIC:'Sensor IC',sht41:'sht41',ens210:'ens210',lps22df:'lps22df',bme690:'bme690',testButton:'按鈕',testGreenLED:'藍色 LED',testOrangeLED:'橙色 LED',testBuzzer:'蜂鳴器',testSPI:'SPI'};
+function tag(v){v=v||'-';return `<b class="${v.toLowerCase()}">${v.toUpperCase()}</b>`} function dt(v){return v?new Date(v).toLocaleString():'-'}
+async function loadAll(){try{const [s,r]=await Promise.all([fetch(api+'/api/v1/dashboard/stats').then(x=>x.json()),fetch(api+'/api/v1/sensor-runs').then(x=>x.json())]);
+document.querySelector('#stats').innerHTML=[['總數',s.total],['通過',s.passed],['失敗',s.failed],['待測',s.pending],['良率',s.pass_rate+'%']].map(x=>`<div class="card">${x[0]}<div class="value">${x[1]}</div></div>`).join('');
+document.querySelector('#head').innerHTML=['WLE','WBA','測試結果','測試時間',...stages.map(x=>labels[x])].map(x=>`<th>${x}</th>`).join('');
+document.querySelector('#body').innerHTML=r.map(run=>{const m=Object.fromEntries(run.items.map(i=>[i.stage,i.status]));return `<tr><td>${run.serial_wle}</td><td>${run.serial_wba||'-'}</td><td>${tag(run.test_result)}</td><td>${dt(run.started_at)}</td>${stages.map(x=>`<td>${tag(m[x])}</td>`).join('')}</tr>`}).join('');
+}catch(e){document.querySelector('#stats').innerHTML='<div class="card fail">無法連線雲端模擬器</div>'}} loadAll(); setInterval(loadAll,30000);
+</script></body></html>

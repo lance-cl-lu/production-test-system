@@ -1,0 +1,1 @@
+window.CLOUD_API_URL = "${CLOUD_PUBLIC_API_URL}";
