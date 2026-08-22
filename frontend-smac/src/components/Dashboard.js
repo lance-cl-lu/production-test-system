@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Statistic, Row, Col, Badge } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, HourglassOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
 
@@ -11,27 +11,23 @@ const Dashboard = ({ language = 'zh-TW' }) => {
     total: 0,
     passed: 0,
     failed: 0,
+    pending: 0,
     todayTotal: 0,
+    passRate: 0,
   });
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await testRecordsAPI.getAll({ limit: 500 });
-        const records = response.data;
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const todayRecords = records.filter(
-          (r) => new Date(r.test_time) >= today
-        );
-
+        const response = await testRecordsAPI.getSensorTestRunStats();
+        const data = response.data;
         setStats({
-          total: records.length,
-          passed: records.filter((r) => r.test_result === 'PASS').length,
-          failed: records.filter((r) => r.test_result === 'FAIL').length,
-          todayTotal: todayRecords.length,
+          total: data.total,
+          passed: data.passed,
+          failed: data.failed,
+          pending: data.pending,
+          todayTotal: data.today_total,
+          passRate: data.pass_rate,
         });
       } catch (error) {
         console.error('Failed to fetch stats:', error);
@@ -43,10 +39,6 @@ const Dashboard = ({ language = 'zh-TW' }) => {
 
     return () => clearInterval(interval);
   }, []);
-
-  const passRate = stats.total > 0 
-    ? ((stats.passed / stats.total) * 100).toFixed(1)
-    : 0;
 
   return (
     <Row gutter={16}>
@@ -83,13 +75,23 @@ const Dashboard = ({ language = 'zh-TW' }) => {
         <Card>
           <Statistic
             title={t.passRate}
-            value={passRate}
+            value={stats.passRate}
             suffix="%"
-            valueStyle={{ color: passRate >= 90 ? '#3f8600' : '#cf1322' }}
+            valueStyle={{ color: stats.passRate >= 90 ? '#3f8600' : '#cf1322' }}
           />
         </Card>
       </Col>
-      <Col span={24} style={{ marginTop: 16 }}>
+      <Col span={12} style={{ marginTop: 16 }}>
+        <Card>
+          <Statistic
+            title={t.pendingTests}
+            value={stats.pending}
+            valueStyle={{ color: '#d48806' }}
+            prefix={<HourglassOutlined />}
+          />
+        </Card>
+      </Col>
+      <Col span={12} style={{ marginTop: 16 }}>
         <Card>
           <Statistic
             title={t.todayTests}

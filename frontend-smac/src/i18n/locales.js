@@ -24,6 +24,7 @@ export const translations = {
     totalTests: '總測試數',
     passedTests: '通過數',
     failedTests: '失敗數',
+    pendingTests: '待測試數',
     passRate: '良率',
     todayTests: '今日測試數',
     
@@ -235,6 +236,7 @@ export const translations = {
     totalTests: 'Total Tests',
     passedTests: 'Passed',
     failedTests: 'Failed',
+    pendingTests: 'Pending',
     passRate: 'Pass Rate',
     todayTests: 'Today\'s Tests',
     

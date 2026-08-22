@@ -39,3 +39,26 @@ def init_db():
     except Exception:
         # Best-effort; skip if any issue
         pass
+
+    # 相容舊版 Sensor session：早期會因未偵測到 sht41 而將已通過的
+    # session 留在 PENDING。以實際已儲存的測項終態重新計算。
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE sensor_test_runs AS run
+                SET test_result = CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM sensor_test_items AS item
+                        WHERE item.run_id = run.id AND item.status = 'fail'
+                    ) THEN 'FAIL'
+                    WHEN EXISTS (
+                        SELECT 1 FROM sensor_test_items AS item
+                        WHERE item.run_id = run.id AND item.status = 'pass'
+                    ) THEN 'PASS'
+                    ELSE 'PENDING'
+                END
+                WHERE run.run_mode = 'session'
+            """))
+    except Exception:
+        # Sensor tables 尚未建立或 DB dialect 不支援時，不阻斷啟動。
+        pass

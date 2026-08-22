@@ -102,6 +102,8 @@ const SensorRunList = ({ refreshTrigger, t }) => {
     { title: t.serialWle, dataIndex: 'serial_wle', fixed: 'left', width: 180 },
     { title: t.serialWba, dataIndex: 'serial_wba', fixed: 'left', width: 180,
       render: (value) => value || '-' },
+    { title: t.testResult, dataIndex: 'test_result', fixed: 'left', width: 110,
+      align: 'center', render: resultTag },
     { title: t.testTime, dataIndex: 'started_at', width: 170,
       render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
     ...sensorStages.map((stage) => ({

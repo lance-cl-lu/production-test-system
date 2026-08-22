@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import case, func
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, Dict, Any, Literal, List
@@ -241,6 +242,8 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
         if stage in SENSOR_RESULT_STAGES and status in ("pass", "fail"):
             saved_run = _save_sensor_session_item(serial, stage, status,
                                                   event.detail or {}, now, db)
+        elif stage == "testComplete":
+            saved_run = _finalize_sensor_session(serial, event.detail or {}, now, db)
 
         # 建立 WebSocket 訊息
         message = {
@@ -281,6 +284,39 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
         raise HTTPException(status_code=500, detail="Failed to process event")
 
 
+def _finalize_sensor_session(serial: str, detail: Dict[str, Any], completed_at: datetime,
+                             db: Session) -> Optional[SensorTestRun]:
+    run_id = active_sensor_run_ids.get(serial)
+    db_run = db.query(SensorTestRun).options(selectinload(SensorTestRun.items)).filter(
+        SensorTestRun.id == run_id
+    ).first() if run_id else None
+    if not db_run:
+        db_run = db.query(SensorTestRun).options(selectinload(SensorTestRun.items)).filter(
+            SensorTestRun.serial_wle == serial,
+            SensorTestRun.run_mode == "session",
+        ).order_by(SensorTestRun.started_at.desc()).first()
+    if not db_run:
+        return None
+
+    expected_stages = detail.get("expected_stages")
+    statuses = {existing.stage: existing.status for existing in db_run.items}
+
+    if any(value == "fail" for value in statuses.values()):
+        db_run.test_result = "FAIL"
+    elif expected_stages and all(statuses.get(s) == "pass" for s in expected_stages):
+        db_run.test_result = "PASS"
+    else:
+        if statuses.get("getSensorIC") == "pass" and all(status == "pass" for status in statuses.values()):
+            db_run.test_result = "PASS"
+        else:
+            db_run.test_result = "PENDING"
+
+    db_run.completed_at = completed_at
+    db.commit()
+    db.refresh(db_run)
+    return db_run
+
+
 def _save_sensor_session_item(serial: str, stage: str, status: str,
                               detail: Dict[str, Any], tested_at: datetime,
                               db: Session) -> Optional[SensorTestRun]:
@@ -316,10 +352,26 @@ def _save_sensor_session_item(serial: str, stage: str, status: str,
     statuses = {existing.stage: existing.status for existing in db_run.items}
     if any(value == "fail" for value in statuses.values()):
         db_run.test_result = "FAIL"
-    elif all(statuses.get(name) == "pass" for name in SENSOR_RESULT_STAGES):
+    elif statuses and all(value == "pass" for value in statuses.values()):
         db_run.test_result = "PASS"
     else:
-        db_run.test_result = "PENDING"
+        # 依據 getSensorIC 實際探測結果動態判定所需項目
+        get_ic_item = next((existing for existing in db_run.items if existing.stage == "getSensorIC"), None)
+        if get_ic_item and get_ic_item.detail_json:
+            try:
+                ic_detail = json.loads(get_ic_item.detail_json)
+                required = ["getSensorIC", "testButton", "testGreenLED", "testOrangeLED", "testBuzzer", "testSPI"]
+                for sensor_name in ["sht41", "ens210", "lps22df", "bme690"]:
+                    if ic_detail.get(sensor_name) is True:
+                        required.append(sensor_name)
+                if all(statuses.get(name) == "pass" for name in required):
+                    db_run.test_result = "PASS"
+                else:
+                    db_run.test_result = "PENDING"
+            except Exception:
+                db_run.test_result = "PENDING"
+        else:
+            db_run.test_result = "PENDING"
     db.commit()
     db.refresh(db_run)
     return db_run
@@ -345,6 +397,32 @@ def get_sensor_test_runs(
     if end_date:
         query = query.filter(SensorTestRun.started_at <= end_date)
     return query.order_by(SensorTestRun.started_at.desc()).offset(skip).limit(limit).all()
+
+
+@router.get("/test-runs/stats")
+def get_sensor_test_run_stats(db: Session = Depends(get_db)):
+    """Dashboard statistics based on read-serial Sensor sessions."""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    totals = db.query(
+        func.count(SensorTestRun.id).label("total"),
+        func.sum(case((SensorTestRun.test_result == "PASS", 1), else_=0)).label("passed"),
+        func.sum(case((SensorTestRun.test_result == "FAIL", 1), else_=0)).label("failed"),
+        func.sum(case((SensorTestRun.test_result == "PENDING", 1), else_=0)).label("pending"),
+        func.sum(case((SensorTestRun.started_at >= today_start, 1), else_=0)).label("today_total"),
+    ).filter(SensorTestRun.run_mode == "session").one()
+
+    passed = int(totals.passed or 0)
+    failed = int(totals.failed or 0)
+    pending = int(totals.pending or 0)
+    completed = passed + failed
+    return {
+        "total": int(totals.total or 0),
+        "passed": passed,
+        "failed": failed,
+        "pending": pending,
+        "today_total": int(totals.today_total or 0),
+        "pass_rate": round((passed / completed) * 100, 1) if completed else 0,
+    }
 
 
 @router.delete("/test-runs/{run_id}", status_code=204)

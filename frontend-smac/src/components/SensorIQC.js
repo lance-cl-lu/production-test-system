@@ -38,6 +38,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const serialWleRef = useRef('');
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
+  const stageResolversRef = useRef({});
   const testResultsRef = useRef({});
   const testDataRef = useRef({ sensors: [], sensorMeasurements: {} });
   const completionExpectedRef = useRef([]);
@@ -175,6 +176,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             completionExpectedRef.current = detail?.expected_stages || [];
           }
           if (stage === 'testBuzzer' && status === 'testing' &&
+              detail?.awaiting_user_confirmation &&
               buzzerPromptRef.current !== serial) {
             buzzerPromptRef.current = serial;
             Modal.confirm({
@@ -197,7 +199,9 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             });
           }
 
-          if ((stage === 'testGreenLED' || stage === 'testOrangeLED') && status === 'testing') {
+          if ((stage === 'testGreenLED' || stage === 'testOrangeLED') &&
+              status === 'testing' &&
+              detail?.awaiting_user_confirmation) {
             const promptKey = `${serial}:${stage}`;
             if (ledPromptRef.current !== promptKey) {
               ledPromptRef.current = promptKey;
@@ -221,7 +225,9 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             setTestResults(newResults);
           }
 
-          if (status === 'pass' || status === 'fail') {
+          if (status === 'testing') {
+            setRunningStage(stage);
+          } else if (status === 'pass' || status === 'fail') {
             if (stageTimeoutStageRef.current === stage) {
               clearTimeout(stageTimeoutRef.current);
               stageTimeoutStageRef.current = null;
@@ -229,6 +235,13 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             setRunningStage(prev => (prev === stage ? null : prev));
             if (stage === 'testGreenLED' || stage === 'testOrangeLED') {
               ledPromptRef.current = null;
+            }
+            if (stage === 'testBuzzer') {
+              buzzerPromptRef.current = null;
+            }
+            if (stageResolversRef.current[stage]) {
+              stageResolversRef.current[stage](status);
+              delete stageResolversRef.current[stage];
             }
           }
 
@@ -388,6 +401,41 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     }
   };
 
+  const executeStage = async (stageKey, sn) => {
+    setRunningStage(stageKey);
+    testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'testing' };
+    setTestResults({ ...testResultsRef.current });
+
+    const completionPromise = new Promise((resolve) => {
+      stageResolversRef.current[stageKey] = resolve;
+    });
+
+    try {
+      await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
+    } catch (error) {
+      console.error(`Failed to run stage ${stageKey}:`, error);
+      delete stageResolversRef.current[stageKey];
+      testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
+      setTestResults({ ...testResultsRef.current });
+      setRunningStage(null);
+      return 'fail';
+    }
+
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => resolve('timeout'), STAGE_TIMEOUT_MS);
+    });
+
+    const result = await Promise.race([completionPromise, timeoutPromise]);
+    if (result === 'timeout') {
+      delete stageResolversRef.current[stageKey];
+      testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
+      setTestResults({ ...testResultsRef.current });
+      setRunningStage(null);
+      return 'fail';
+    }
+    return result;
+  };
+
   const startTest = async () => {
     const sn = serialWle.trim();
     if (!sn) return;
@@ -396,12 +444,73 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     setTesting(true);
     message.info(t.sensorIQC.testStarted);
 
-    try {
-      await testRecordsAPI.startSensorTest({ serial: sn });
-    } catch (error) {
-      console.error('Failed to start sensor test:', error);
-      message.error(t.sensorIQC.startFailed || 'Failed to start test');
+    // 1. 先探測 Sensor IC
+    const icResult = await executeStage('getSensorIC', sn);
+    if (icResult === 'fail') {
+      message.error(t.sensorIQC.testFailed);
       setTesting(false);
+      setRunningStage(null);
+      return;
+    }
+
+    // 取得探測到的 Sensor 清單
+    const detectedSensors = testDataRef.current.sensors || [];
+    const expectedStages = ['getSensorIC'];
+
+    // 2. 依序執行有探測到的 Sensor 測項
+    const sensorOrder = ['sht41', 'ens210', 'lps22df', 'bme690'];
+    for (const sensorKey of sensorOrder) {
+      if (detectedSensors.includes(sensorKey)) {
+        expectedStages.push(sensorKey);
+        await executeStage(sensorKey, sn);
+      }
+    }
+
+    // 3. 執行按鈕測試
+    expectedStages.push('testButton');
+    await executeStage('testButton', sn);
+
+    // 4. 執行藍色 LED 測試 (會跳出 Modal 詢問確認)
+    expectedStages.push('testGreenLED');
+    await executeStage('testGreenLED', sn);
+
+    // 5. 執行橘色 LED 測試 (會跳出 Modal 詢問確認)
+    expectedStages.push('testOrangeLED');
+    await executeStage('testOrangeLED', sn);
+
+    // 6. 執行蜂鳴器測試 (會跳出 Modal 詢問確認)
+    expectedStages.push('testBuzzer');
+    await executeStage('testBuzzer', sn);
+
+    // 7. 執行 SPI 測試
+    expectedStages.push('testSPI');
+    await executeStage('testSPI', sn);
+
+    // 8. 回報 testComplete 讓後端與資料庫結算整體結果
+    try {
+      await testRecordsAPI.reportSensorEvent({
+        serial: sn,
+        stage: 'testComplete',
+        status: 'pass',
+        detail: {
+          run_mode: 'full',
+          requested_stage: '',
+          serial_wba: serialWba,
+          expected_stages: expectedStages,
+        },
+      });
+    } catch (e) {
+      console.error('Failed to report testComplete:', e);
+    }
+
+    const currentResults = testResultsRef.current;
+    const allPassed = expectedStages.every((s) => currentResults[s] === 'pass');
+    setTesting(false);
+    setRunningStage(null);
+    if (allPassed) {
+      message.success(t.sensorIQC.testPassed);
+    } else {
+      message.error(t.sensorIQC.testFailed);
     }
   };
 

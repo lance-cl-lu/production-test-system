@@ -144,18 +144,28 @@ void run_test_stage(const char *stage, const char *serial) {
     printf("[TEST] %-16s ... ", stage);
     fflush(stdout);
 
-    if (strcmp(stage, "testBuzzer") != 0 &&
-        strcmp(stage, "testGreenLED") != 0 &&
-        strcmp(stage, "testOrangeLED") != 0 &&
-        strcmp(stage, "testGreenLEDOff") != 0 &&
-        strcmp(stage, "testOrangeLEDOff") != 0) {
-        send_event(serial, stage, "testing", NULL);
-    }
-
     if (simulate_mode) {
         printf("[SIMULATE] ");
-    } else if (!uart_available) {
-        fprintf(stderr, "[WARN] UART unavailable for stage '%s'\n", stage);
+        // 模擬模式：自動測項先發送 testing 狀態讓前端顯示進行中動畫
+        if (strcmp(stage, "testGreenLEDOff") != 0 &&
+            strcmp(stage, "testOrangeLEDOff") != 0 &&
+            strcmp(stage, "testGreenLED") != 0 &&
+            strcmp(stage, "testOrangeLED") != 0 &&
+            strcmp(stage, "testBuzzer") != 0) {
+            send_event(serial, stage, "testing", NULL);
+            usleep(800000); // 模擬執行時間 (800ms)
+        }
+    } else {
+        if (strcmp(stage, "testBuzzer") != 0 &&
+            strcmp(stage, "testGreenLED") != 0 &&
+            strcmp(stage, "testOrangeLED") != 0 &&
+            strcmp(stage, "testGreenLEDOff") != 0 &&
+            strcmp(stage, "testOrangeLEDOff") != 0) {
+            send_event(serial, stage, "testing", NULL);
+        }
+        if (!uart_available) {
+            fprintf(stderr, "[WARN] UART unavailable for stage '%s'\n", stage);
+        }
     }
 
     if (strcmp(stage, "getSensorIC") == 0) {
@@ -171,6 +181,7 @@ void run_test_stage(const char *stage, const char *serial) {
                      "\"sht41\":false,\"ens210\":true,\"lps22df\":true,\"bme690\":true,\"probe_completed\":true");
             send_event(serial, stage, "pass", detail);
             printf("pass  {%s}\n", detail);
+            usleep(300000);
             return;
         }
         if (!uart_available) {
@@ -227,6 +238,7 @@ void run_test_stage(const char *stage, const char *serial) {
             }
             send_event(serial, stage, "pass", detail);
             printf("pass  {%s}\n", detail);
+            usleep(300000);
             return;
         }
         if (!uart_available) {
@@ -265,16 +277,18 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testBuzzer") == 0 || strcmp(stage, "testSPI") == 0) {
+        if (strcmp(stage, "testBuzzer") == 0) {
+            send_event(serial, stage, "testing", "\"awaiting_user_confirmation\":true");
+            printf("testing  {\"test\":\"testBuzzer\",\"awaiting_user_confirmation\":true}\n");
+            return;
+        }
+
         if (simulate_mode) {
-            if (strcmp(stage, "testBuzzer") == 0) {
-                send_event(serial, stage, "testing", NULL);
-                printf("testing  {\"test\":\"testBuzzer\",\"awaiting_user_confirmation\":true}\n");
-                return;
-            }
             const char *status = pass_or_fail(PASS_RATIO);
             snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":true", stage);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
+            usleep(300000);
             return;
         }
         if (!uart_available) {
@@ -284,15 +298,7 @@ void run_test_stage(const char *stage, const char *serial) {
             return;
         }
 
-        int result = strcmp(stage, "testBuzzer") == 0
-            ? uart_hvf_test_buzzer(uart_fd, 3000)
-            : uart_hvf_test_spi(uart_fd);
-        if (strcmp(stage, "testBuzzer") == 0 && result == 0) {
-            send_event(serial, stage, "testing", NULL);
-            printf("testing  {\"test\":\"testBuzzer\",\"awaiting_user_confirmation\":true}\n");
-            return;
-        }
-
+        int result = uart_hvf_test_spi(uart_fd);
         const char *status = result == 0 ? "pass" : "fail";
         snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":true", stage);
         send_event(serial, stage, status, detail);
@@ -301,9 +307,9 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testOrangeLED") == 0 || strcmp(stage, "testGreenLED") == 0) {
+        int led_index = strcmp(stage, "testOrangeLED") == 0 ? 1 : 2;
         if (simulate_mode) {
-            int led_index = strcmp(stage, "testOrangeLED") == 0 ? 1 : 2;
-            send_event(serial, stage, "testing", NULL);
+            send_event(serial, stage, "testing", "\"awaiting_user_confirmation\":true");
             printf("testing  {\"led_color\":\"%s\",\"led_index\":%d,\"awaiting_user_confirmation\":true}\n",
                    led_index == 1 ? "orange" : "blue", led_index);
             return;
@@ -316,10 +322,9 @@ void run_test_stage(const char *stage, const char *serial) {
             return;
         }
 
-        int led_index = strcmp(stage, "testOrangeLED") == 0 ? 1 : 2;
         int result = uart_hvf_test_led(uart_fd, led_index);
         if (result == 0) {
-            send_event(serial, stage, "testing", NULL);
+            send_event(serial, stage, "testing", "\"awaiting_user_confirmation\":true");
             printf("testing  {\"led_color\":\"%s\",\"led_index\":%d,\"awaiting_user_confirmation\":true}\n",
                    led_index == 1 ? "orange" : "blue", led_index);
             return;
@@ -358,6 +363,7 @@ void run_test_stage(const char *stage, const char *serial) {
                      strcmp(status, "pass") == 0 ? 1 : 0, 3);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
+            usleep(300000);
             return;
         }
         if (!uart_available) {
