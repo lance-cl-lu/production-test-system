@@ -2,6 +2,7 @@
 #define UART_HVF_SENSORS_H
 
 #include <stddef.h>
+#include "platform_io.h"
 
 typedef struct {
     int sht41;
@@ -24,19 +25,19 @@ typedef struct {
 } uart_hvf_sensor_measurement_t;
 
 // 執行 sensor_probe_all，成功回 0
-int uart_hvf_probe_sensors(int fd, uart_hvf_sensor_result_t *result);
+int uart_hvf_probe_sensors(platform_uart_t uart, uart_hvf_sensor_result_t *result);
 
 // 執行單顆 sensor probe，成功偵測回 1，未偵測到回 0，通訊錯誤回 -1
-int uart_hvf_probe_sensor(int fd, const char *sensor_name);
+int uart_hvf_probe_sensor(platform_uart_t uart, const char *sensor_name);
 
 // 讀取指定 IC 支援的量測值，成功回 0
-int uart_hvf_measure_sensor(int fd, const char *sensor_name,
+int uart_hvf_measure_sensor(platform_uart_t uart, const char *sensor_name,
                             uart_hvf_sensor_measurement_t *result);
 
-int uart_hvf_test_buzzer(int fd, int duration_ms);
-int uart_hvf_test_spi(int fd);
-int uart_hvf_test_button(int fd, int wait_seconds);
-int uart_hvf_test_led(int fd, int led_index);
-int uart_hvf_set_led(int fd, int led_index, int on);
+int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms);
+int uart_hvf_test_spi(platform_uart_t uart);
+int uart_hvf_test_button(platform_uart_t uart, int wait_seconds);
+int uart_hvf_test_led(platform_uart_t uart, int led_index);
+int uart_hvf_set_led(platform_uart_t uart, int led_index, int on);
 
 #endif

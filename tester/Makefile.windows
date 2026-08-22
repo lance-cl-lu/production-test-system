@@ -1,0 +1,19 @@
+# Build from an MSYS2 MinGW64 shell on Windows.
+# Install toolchain: pacman -S --needed mingw-w64-x86_64-gcc make
+
+CC ?= gcc
+CFLAGS := -O2 -Wall -Wextra -D_WIN32_WINNT=0x0601
+LDFLAGS := -lwinhttp
+
+SOURCES := sensor_watcher.c uart_hvf.c uart_hvf_sensors.c \
+           platform_windows.c platform_http_windows.c
+
+.PHONY: all clean
+
+all: sensor_watcher.exe
+
+sensor_watcher.exe: $(SOURCES)
+	$(CC) $(CFLAGS) -o $@ $(SOURCES) $(LDFLAGS)
+
+clean:
+	rm -f sensor_watcher.exe

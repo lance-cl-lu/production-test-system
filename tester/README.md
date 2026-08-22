@@ -8,10 +8,14 @@
 
 - **tester.py**：Python 測試腳本（批次測試與連續測試）
 - **pcba_watcher.c**：整合 UID 搜尋與測試流程的監看程式（詳見 `README_WATCHER.md`）
-- **sensor_watcher.c**：Sensor IQC 監看程式（讀序號已接實際裝置，測試階段仍為模擬）
+- **sensor_watcher.c**：Sensor IQC 跨平台共用測試流程；macOS/Linux 與 Windows
+  使用不同 platform adapter，但共用 UART 協定、測試順序與 Backend JSON
 - **uart_hvf_probe**：UART 探測工具，以 JSON 回報結果
 - **trigger_pcba.sh**：一鍵觸發 PCBA 測試的 Shell 腳本
 - **Makefile**：編譯 C 程式工具
+
+Windows 的編譯、COM port 選擇及跨平台行為比對方式請見
+[`WINDOWS_SENSOR_WATCHER.md`](WINDOWS_SENSOR_WATCHER.md)。
 
 ## 安裝
 

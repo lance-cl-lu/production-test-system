@@ -1,0 +1,18 @@
+[
+  {"detail_keys": [], "stage": "getSensorIC", "status": "testing"},
+  {"detail_keys": ["bme690", "ens210", "lps22df", "probe_completed", "sht41"], "stage": "getSensorIC", "status": "pass"},
+  {"detail_keys": [], "stage": "ens210", "status": "testing"},
+  {"detail_keys": ["detected", "humidity", "sensor", "temperature"], "stage": "ens210", "status": "pass"},
+  {"detail_keys": [], "stage": "lps22df", "status": "testing"},
+  {"detail_keys": ["detected", "pressure", "sensor"], "stage": "lps22df", "status": "pass"},
+  {"detail_keys": [], "stage": "bme690", "status": "testing"},
+  {"detail_keys": ["detected", "gas_resistance", "humidity", "pressure", "sensor", "temperature"], "stage": "bme690", "status": "pass"},
+  {"detail_keys": [], "stage": "testButton", "status": "testing"},
+  {"detail_keys": ["press_count", "window_s"], "stage": "testButton", "status": "pass"},
+  {"detail_keys": ["awaiting_user_confirmation"], "stage": "testGreenLED", "status": "testing"},
+  {"detail_keys": ["awaiting_user_confirmation"], "stage": "testOrangeLED", "status": "testing"},
+  {"detail_keys": ["awaiting_user_confirmation"], "stage": "testBuzzer", "status": "testing"},
+  {"detail_keys": [], "stage": "testSPI", "status": "testing"},
+  {"detail_keys": ["executed", "test"], "stage": "testSPI", "status": "pass"},
+  {"detail_keys": ["expected_stages", "requested_stage", "run_mode", "serial_wba"], "stage": "testComplete", "status": "pass"}
+]

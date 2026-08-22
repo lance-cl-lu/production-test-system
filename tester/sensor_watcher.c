@@ -19,13 +19,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <time.h>
-#include <sys/stat.h>
-#include <sys/file.h>
-#include <fcntl.h>
-#include <curl/curl.h>
-
+#include "platform_http.h"
+#include "platform_io.h"
 #include "uart_hvf.h"
 #include "uart_hvf_sensors.h"
 
@@ -41,20 +37,13 @@
 // 換板子後裝置的開機訊息可能斷續輸出，要求較長的靜默才視為吐完
 #define BOARD_SWAP_IDLE_MS 800
 
-static int uart_fd = -1;
-static int watcher_lock_fd = -1;
+static platform_uart_t uart_fd = PLATFORM_UART_INVALID;
+static platform_lock_t watcher_lock = {.value = -1};
 static int simulate_mode = 0;
 static volatile sig_atomic_t keep_running = 1;
-
-static int stat_mtime_equal(const struct stat *a, const struct stat *b) {
-#ifdef __APPLE__
-    return a->st_mtimespec.tv_sec == b->st_mtimespec.tv_sec &&
-           a->st_mtimespec.tv_nsec == b->st_mtimespec.tv_nsec;
-#else
-    return a->st_mtim.tv_sec == b->st_mtim.tv_sec &&
-           a->st_mtim.tv_nsec == b->st_mtim.tv_nsec;
-#endif
-}
+static const char *command_file = SHARED_FILE;
+static char api_events_url[512] = API_EVENTS_URL;
+static char api_serial_found_url[512] = API_SERIAL_FOUND_URL;
 
 static void handle_signal(int signum) {
     (void)signum;
@@ -81,42 +70,14 @@ static const char *pass_or_fail(double pass_ratio) {
 static void now_iso(char *buf, size_t len) {
     time_t t = time(NULL);
     struct tm tm;
-    gmtime_r(&t, &tm);
+    platform_utc_time(t, &tm);
     strftime(buf, len, "%Y-%m-%dT%H:%M:%SZ", &tm);
 }
 
 int post_json(const char *url, const char *json_payload) {
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        fprintf(stderr, "Failed to init curl\n");
-        return -1;
-    }
-
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
-
-    CURLcode res = curl_easy_perform(curl);
-
-    long http_code = 0;
-    if (res == CURLE_OK) {
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-    }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (res != CURLE_OK) {
-        fprintf(stderr, "POST failed: %s\n", curl_easy_strerror(res));
-        return -1;
-    }
-    if (http_code < 200 || http_code >= 300) {
-        fprintf(stderr, "POST rejected by backend: HTTP %ld\n  payload: %s\n",
-                http_code, json_payload);
+    char error[256] = "unknown error";
+    if (platform_http_post_json(url, json_payload, 5, error, sizeof(error)) != 0) {
+        fprintf(stderr, "POST failed: %s\n  payload: %s\n", error, json_payload);
         return -1;
     }
     return 0;
@@ -133,13 +94,13 @@ static void send_event(const char *serial, const char *stage,
              "\"detail\":{%s},\"timestamp\":\"%s\"}",
              serial, stage, status, detail_fields ? detail_fields : "", timestamp);
 
-    post_json(API_EVENTS_URL, json);
+    post_json(api_events_url, json);
 }
 
 // detail 的 key 必須對應前端 SensorIQC.js 的 testData 欄位才會顯示數值
 void run_test_stage(const char *stage, const char *serial) {
     char detail[160] = "";
-    const int uart_available = (uart_fd >= 0);
+    const int uart_available = (uart_fd != PLATFORM_UART_INVALID);
 
     printf("[TEST] %-16s ... ", stage);
     fflush(stdout);
@@ -153,7 +114,7 @@ void run_test_stage(const char *stage, const char *serial) {
             strcmp(stage, "testOrangeLED") != 0 &&
             strcmp(stage, "testBuzzer") != 0) {
             send_event(serial, stage, "testing", NULL);
-            usleep(800000); // 模擬執行時間 (800ms)
+            platform_sleep_ms(800); // 模擬執行時間 (800ms)
         }
     } else {
         if (strcmp(stage, "testBuzzer") != 0 &&
@@ -181,7 +142,7 @@ void run_test_stage(const char *stage, const char *serial) {
                      "\"sht41\":false,\"ens210\":true,\"lps22df\":true,\"bme690\":true,\"probe_completed\":true");
             send_event(serial, stage, "pass", detail);
             printf("pass  {%s}\n", detail);
-            usleep(300000);
+            platform_sleep_ms(300);
             return;
         }
         if (!uart_available) {
@@ -238,7 +199,7 @@ void run_test_stage(const char *stage, const char *serial) {
             }
             send_event(serial, stage, "pass", detail);
             printf("pass  {%s}\n", detail);
-            usleep(300000);
+            platform_sleep_ms(300);
             return;
         }
         if (!uart_available) {
@@ -288,7 +249,7 @@ void run_test_stage(const char *stage, const char *serial) {
             snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":true", stage);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
-            usleep(300000);
+            platform_sleep_ms(300);
             return;
         }
         if (!uart_available) {
@@ -363,7 +324,7 @@ void run_test_stage(const char *stage, const char *serial) {
                      strcmp(status, "pass") == 0 ? 1 : 0, 3);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
-            usleep(300000);
+            platform_sleep_ms(300);
             return;
         }
         if (!uart_available) {
@@ -403,7 +364,7 @@ void handle_search_command(void) {
         snprintf(serial_wle, sizeof(serial_wle), "SIM-WLE-%ld", (long)time(NULL));
         snprintf(serial_wba, sizeof(serial_wba), "SIM-WBA-%ld", (long)time(NULL));
     } else {
-        if (uart_fd < 0) {
+        if (uart_fd == PLATFORM_UART_INVALID) {
             printf("\n[SEARCH] UART unavailable; cannot read serials\n\n");
             return;
         }
@@ -432,7 +393,7 @@ void handle_search_command(void) {
              "{\"serial_wle\":\"%s\",\"serial_wba\":\"%s\"}",
              serial_wle, serial_wba);
 
-    if (post_json(API_SERIAL_FOUND_URL, payload) == 0) {
+    if (post_json(api_serial_found_url, payload) == 0) {
         printf("[SEARCH] Sent to backend\n\n");
     } else {
         printf("[SEARCH] Failed to send serials\n\n");
@@ -583,17 +544,38 @@ void process_command(const char *line) {
 }
 
 static void print_usage(const char *prog) {
-    fprintf(stderr, "usage: %s [--port /dev/ttyX] [--debug] [--simulate]\n", prog);
-    fprintf(stderr, "  --port   serial port (default: %s)\n", UART_HVF_DEFAULT_PORT);
+    fprintf(stderr, "usage: %s [--port PORT|auto] [--list-ports] [--command-file PATH] "
+                    "[--api-base-url URL] [--debug] [--simulate]\n", prog);
+    fprintf(stderr, "  --port   serial port (default: %s); auto requires exactly one candidate\n",
+            UART_HVF_DEFAULT_PORT);
+    fprintf(stderr, "  --list-ports  list detected serial ports and exit\n");
     fprintf(stderr, "  --simulate  run without UART hardware and generate passing test data\n");
+}
+
+static int print_uart_ports(char ports[][128], int max_ports) {
+    int count = platform_list_uart_ports(ports, max_ports);
+    printf("Detected serial ports (%d):\n", count);
+    for (int i = 0; i < count; i++) printf("  %s\n", ports[i]);
+    return count;
 }
 
 int main(int argc, char **argv) {
     const char *port = UART_HVF_DEFAULT_PORT;
+    char detected_ports[64][128];
+    int list_ports = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = argv[++i];
+        } else if (strcmp(argv[i], "--list-ports") == 0) {
+            list_ports = 1;
+        } else if (strcmp(argv[i], "--command-file") == 0 && i + 1 < argc) {
+            command_file = argv[++i];
+        } else if (strcmp(argv[i], "--api-base-url") == 0 && i + 1 < argc) {
+            const char *base = argv[++i];
+            snprintf(api_events_url, sizeof(api_events_url), "%s/api/sensor/events", base);
+            snprintf(api_serial_found_url, sizeof(api_serial_found_url),
+                     "%s/api/sensor/serial-found", base);
         } else if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0) {
             uart_hvf_set_debug(1);
         } else if (strcmp(argv[i], "--simulate") == 0) {
@@ -604,18 +586,30 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (list_ports) {
+        print_uart_ports(detected_ports, 64);
+        return 0;
+    }
+    if (!simulate_mode && strcmp(port, "auto") == 0) {
+        int count = print_uart_ports(detected_ports, 64);
+        if (count != 1) {
+            fprintf(stderr, "[ERROR] Auto selection requires exactly one serial port; "
+                            "use --port PORT to select one.\n");
+            return 2;
+        }
+        port = detected_ports[0];
+    }
+
     srand((unsigned int)time(NULL));
 
-    watcher_lock_fd = open(WATCHER_LOCK_FILE, O_CREAT | O_RDWR, 0666);
-    if (watcher_lock_fd < 0 || flock(watcher_lock_fd, LOCK_EX | LOCK_NB) != 0) {
+    if (platform_lock_acquire(&watcher_lock, WATCHER_LOCK_FILE) != 0) {
         fprintf(stderr, "[ERROR] Another sensor_watcher is already running\n");
-        if (watcher_lock_fd >= 0) close(watcher_lock_fd);
         return 1;
     }
 
     setvbuf(stdout, NULL, _IOLBF, 0);  // 輸出導向檔案時仍即時可見
 
-    struct stat st_old = {0}, st_new;
+    platform_file_stamp_t st_old = {0}, st_new = {0};
     char line[256];
 
     signal(SIGINT, handle_signal);
@@ -623,42 +617,42 @@ int main(int argc, char **argv) {
 
     if (!simulate_mode) {
         uart_fd = uart_hvf_open(port);
-        if (uart_fd < 0) {
+        if (uart_fd == PLATFORM_UART_INVALID) {
             fprintf(stderr, "[WARN] Failed to open serial port: %s\n", port);
         }
     }
 
-    curl_global_init(CURL_GLOBAL_ALL);
+    platform_http_init();
 
     printf("========================================\n");
     printf("Sensor IQC 監看程式\n");
     printf("========================================\n");
     printf("Mode       : %s\n", simulate_mode ? "SIMULATE (no hardware)" : "HARDWARE");
     printf("Serial port: %s\n", simulate_mode ? "disabled" : port);
-    printf("監看檔案: %s\n", SHARED_FILE);
-    printf("事件 API : %s\n", API_EVENTS_URL);
+    printf("監看檔案: %s\n", command_file);
+    printf("事件 API : %s\n", api_events_url);
     printf("等待指令 (SEARCH / TEST <SERIAL>)... Ctrl-C 結束\n\n");
 
-    stat(SHARED_FILE, &st_old);
+    platform_file_stamp(command_file, &st_old);
 
     while (keep_running) {
-        sleep(CHECK_INTERVAL);
+        platform_sleep_ms(CHECK_INTERVAL * 1000U);
 
         if (!keep_running) {
             break;
         }
 
-        if (stat(SHARED_FILE, &st_new) != 0) {
+        if (platform_file_stamp(command_file, &st_new) != 0) {
             continue;
         }
 
         // UI 可能在同一秒內連續寫入 LED Off 與下一個測項，
         // 只比較秒會漏掉後一筆，因此必須連奈秒一起比較。
-        if (stat_mtime_equal(&st_new, &st_old)) {
+        if (platform_file_stamp_equal(&st_new, &st_old)) {
             continue;
         }
 
-        FILE *f = fopen(SHARED_FILE, "r");
+        FILE *f = fopen(command_file, "r");
         if (!f) {
             st_old = st_new;
             continue;
@@ -671,11 +665,11 @@ int main(int argc, char **argv) {
         fclose(f);
 
         // 清空檔案，避免同一指令被重複觸發
-        f = fopen(SHARED_FILE, "w");
+        f = fopen(command_file, "w");
         if (f) {
             fclose(f);
         }
-        stat(SHARED_FILE, &st_old);
+        platform_file_stamp(command_file, &st_old);
 
         if (strlen(line) > 0) {
             process_command(line);
@@ -684,8 +678,7 @@ int main(int argc, char **argv) {
 
     printf("\nShutting down...\n");
     uart_hvf_close(uart_fd);
-    flock(watcher_lock_fd, LOCK_UN);
-    close(watcher_lock_fd);
-    curl_global_cleanup();
+    platform_lock_release(&watcher_lock);
+    platform_http_cleanup();
     return 0;
 }

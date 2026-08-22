@@ -2,13 +2,9 @@
 
 #include "uart_hvf.h"
 
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 #define SENSOR_IDLE_MS 200
 #define SENSOR_WAIT_MS 100
@@ -21,26 +17,20 @@ static void spi_debug_dump(const char *label, const char *response) {
 }
 
 typedef struct {
-    int fd;
+    platform_uart_t uart;
     char response[1024];
 } sensor_probe_context_t;
 
-static int wait_for_data(int fd, int timeout_ms) {
-    fd_set rfds;
-    struct timeval tv;
-    FD_ZERO(&rfds);
-    FD_SET(fd, &rfds);
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-    return select(fd + 1, &rfds, NULL, NULL, &tv);
+static int wait_for_data(platform_uart_t uart, int timeout_ms) {
+    return platform_uart_wait_readable(uart, timeout_ms);
 }
 
-static int drain_until_idle(int fd, int idle_ms) {
+static int drain_until_idle(platform_uart_t uart, int idle_ms) {
     int idle_wait = 0;
     unsigned char buf[256];
 
     while (1) {
-        int ready = wait_for_data(fd, 50);
+        int ready = wait_for_data(uart, 50);
         if (ready <= 0) {
             idle_wait += 50;
             if (idle_wait >= idle_ms) {
@@ -49,51 +39,41 @@ static int drain_until_idle(int fd, int idle_ms) {
             continue;
         }
 
-        ssize_t received = read(fd, buf, sizeof(buf));
+        int received = platform_uart_read(uart, buf, sizeof(buf));
         if (received > 0) {
             idle_wait = 0;
-        } else if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            idle_wait += 50;
-            if (idle_wait >= idle_ms) {
-                return 0;
-            }
         } else if (received < 0) {
             return -1;
         }
     }
 }
 
-static void write_all(int fd, const char *text) {
+static void write_all(platform_uart_t uart, const char *text) {
     size_t length = strlen(text);
     size_t sent = 0;
 
     while (sent < length) {
-        ssize_t written = write(fd, text + sent, length - sent);
-        if (written < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(10000);
-                continue;
-            }
-            return;
-        }
+        int written = platform_uart_write(uart, text + sent, length - sent);
+        if (written < 0) return;
+        if (written == 0) { platform_sleep_ms(10); continue; }
         sent += (size_t)written;
     }
 }
 
-static int read_to_buffer(int fd, char *buffer, size_t buffer_size, int timeout_ms) {
+static int read_to_buffer(platform_uart_t uart, char *buffer, size_t buffer_size, int timeout_ms) {
     size_t offset = 0;
     unsigned char chunk[256];
     int remaining_ms = timeout_ms;
 
     while (remaining_ms > 0 && buffer_size > 0) {
         int wait_ms = remaining_ms < 50 ? remaining_ms : 50;
-        int ready = wait_for_data(fd, wait_ms);
+        int ready = wait_for_data(uart, wait_ms);
         if (ready <= 0) {
             remaining_ms -= wait_ms;
             continue;
         }
 
-        ssize_t received = read(fd, chunk, sizeof(chunk));
+        int received = platform_uart_read(uart, chunk, sizeof(chunk));
         if (received > 0) {
             size_t remaining = buffer_size - offset;
             size_t copy_length = (size_t)received;
@@ -120,9 +100,9 @@ static int run_sensor_probe(sensor_probe_context_t *context, const char *sensor_
 
     snprintf(command, sizeof(command), "sensor_probe %s\r\n", sensor_name);
     memset(context->response, 0, sizeof(context->response));
-    write_all(context->fd, command);
-    usleep(SENSOR_WAIT_MS * 1000);
-    read_to_buffer(context->fd, context->response, sizeof(context->response), 1500);
+    write_all(context->uart, command);
+    platform_sleep_ms(SENSOR_WAIT_MS);
+    read_to_buffer(context->uart, context->response, sizeof(context->response), 1500);
 
     if (strstr(context->response, "<[OK]>") != NULL) {
         return 1;
@@ -152,10 +132,10 @@ static int extract_numeric_payload(const char *response, double *value) {
 static int run_measurement_command(sensor_probe_context_t *context,
                                    const char *command, double *value) {
     snprintf(context->response, sizeof(context->response), "");
-    write_all(context->fd, command);
-    write_all(context->fd, "\r\n");
-    usleep(SENSOR_WAIT_MS * 1000);
-    read_to_buffer(context->fd, context->response, sizeof(context->response), 1500);
+    write_all(context->uart, command);
+    write_all(context->uart, "\r\n");
+    platform_sleep_ms(SENSOR_WAIT_MS);
+    read_to_buffer(context->uart, context->response, sizeof(context->response), 1500);
 
     if (strstr(context->response, "<[OK]>") == NULL) {
         return 0;
@@ -163,22 +143,22 @@ static int run_measurement_command(sensor_probe_context_t *context,
     return extract_numeric_payload(context->response, value);
 }
 
-int uart_hvf_probe_sensor(int fd, const char *sensor_name) {
-    sensor_probe_context_t context = {.fd = fd};
+int uart_hvf_probe_sensor(platform_uart_t uart, const char *sensor_name) {
+    sensor_probe_context_t context = {.uart = uart};
 
-    if (sensor_name == NULL || drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
+    if (sensor_name == NULL || drain_until_idle(uart, SENSOR_IDLE_MS) != 0) {
         return -1;
     }
 
     return run_sensor_probe(&context, sensor_name);
 }
 
-int uart_hvf_measure_sensor(int fd, const char *sensor_name,
+int uart_hvf_measure_sensor(platform_uart_t uart, const char *sensor_name,
                             uart_hvf_sensor_measurement_t *result) {
-    sensor_probe_context_t context = {.fd = fd};
+    sensor_probe_context_t context = {.uart = uart};
 
     if (sensor_name == NULL || result == NULL ||
-        drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
+        drain_until_idle(uart, SENSOR_IDLE_MS) != 0) {
         return -1;
     }
     memset(result, 0, sizeof(*result));
@@ -216,14 +196,14 @@ int uart_hvf_measure_sensor(int fd, const char *sensor_name,
     return 0;
 }
 
-static int run_command_until_ok(int fd, const char *command, int timeout_ms) {
+static int run_command_until_ok(platform_uart_t uart, const char *command, int timeout_ms) {
     char response[2048];
     int elapsed = 0;
     const int slice_ms = 100;
     size_t used = 0;
 
-    write_all(fd, command);
-    write_all(fd, "\r\n");
+    write_all(uart, command);
+    write_all(uart, "\r\n");
 
     memset(response, 0, sizeof(response));
     while (elapsed < timeout_ms) {
@@ -236,7 +216,7 @@ static int run_command_until_ok(int fd, const char *command, int timeout_ms) {
             return -1;
         }
 
-        int got = read_to_buffer(fd, response + used, sizeof(response) - used, wait_ms);
+        int got = read_to_buffer(uart, response + used, sizeof(response) - used, wait_ms);
         if (got > 0) {
             used += (size_t)got;
         }
@@ -260,7 +240,7 @@ static int run_command_until_ok(int fd, const char *command, int timeout_ms) {
     return -1;
 }
 
-static int run_command_until_ok_capture(int fd, const char *command, int timeout_ms,
+static int run_command_until_ok_capture(platform_uart_t uart, const char *command, int timeout_ms,
                                         char *response_out, size_t response_out_size) {
     char response[2048];
     int elapsed = 0;
@@ -271,8 +251,8 @@ static int run_command_until_ok_capture(int fd, const char *command, int timeout
         response_out[0] = '\0';
     }
 
-    write_all(fd, command);
-    write_all(fd, "\r\n");
+    write_all(uart, command);
+    write_all(uart, "\r\n");
 
     memset(response, 0, sizeof(response));
     while (elapsed < timeout_ms) {
@@ -285,7 +265,7 @@ static int run_command_until_ok_capture(int fd, const char *command, int timeout
             break;
         }
 
-        int got = read_to_buffer(fd, response + used, sizeof(response) - used, wait_ms);
+        int got = read_to_buffer(uart, response + used, sizeof(response) - used, wait_ms);
         if (got > 0) {
             used += (size_t)got;
         }
@@ -319,15 +299,15 @@ static int run_command_until_ok_capture(int fd, const char *command, int timeout
     return -1;
 }
 
-static int send_command_capture(int fd, const char *command, char *response, size_t response_size,
+static int send_command_capture(platform_uart_t uart, const char *command, char *response, size_t response_size,
                                 int timeout_ms) {
     if (response_size == 0U) {
         return -1;
     }
     memset(response, 0, response_size);
-    write_all(fd, command);
-    write_all(fd, "\r\n");
-    read_to_buffer(fd, response, response_size, timeout_ms);
+    write_all(uart, command);
+    write_all(uart, "\r\n");
+    read_to_buffer(uart, response, response_size, timeout_ms);
     return 0;
 }
 
@@ -338,7 +318,7 @@ static int response_has_error_marker(const char *response) {
            strstr(response, "Error:") != NULL;
 }
 
-static int enter_passthrough(int fd) {
+static int enter_passthrough(platform_uart_t uart) {
     char response[1024];
     static const char *const passthrough_commands[] = {
         "ipc_passthrough", "ipc_passtrough", "passthrough"
@@ -346,7 +326,7 @@ static int enter_passthrough(int fd) {
 
     int entered = 0;
     for (size_t i = 0; i < sizeof(passthrough_commands) / sizeof(passthrough_commands[0]); ++i) {
-        (void)send_command_capture(fd, passthrough_commands[i], response, sizeof(response), 2000);
+        (void)send_command_capture(uart, passthrough_commands[i], response, sizeof(response), 2000);
         if (strstr(response, "Entering HVF passthrough") != NULL ||
             strstr(response, "Press Ctrl+C") != NULL) {
             entered = 1;
@@ -363,20 +343,20 @@ static int enter_passthrough(int fd) {
     }
 
     for (int i = 0; i < 3; i++) {
-        write_all(fd, "\r");
-        usleep(SENSOR_WAIT_MS * 1000);
+        write_all(uart, "\r");
+        platform_sleep_ms(SENSOR_WAIT_MS);
     }
-    return drain_until_idle(fd, SENSOR_IDLE_MS);
+    return drain_until_idle(uart, SENSOR_IDLE_MS);
 }
 
-static void exit_passthrough(int fd) {
+static void exit_passthrough(platform_uart_t uart) {
     char response[1024];
     static const char *const passthrough_exit_commands[] = {
         "ipc_passthrough_exit", "ipc_passtrough_exit", "passthrough_exit"
     };
 
     for (size_t i = 0; i < sizeof(passthrough_exit_commands) / sizeof(passthrough_exit_commands[0]); ++i) {
-        (void)send_command_capture(fd, passthrough_exit_commands[i], response, sizeof(response), 2500);
+        (void)send_command_capture(uart, passthrough_exit_commands[i], response, sizeof(response), 2500);
         if (strstr(response, "IPC_IRQ pulse sent") != NULL ||
             strstr(response, "Exited HVF passthrough") != NULL ||
             strstr(response, "<[OK]>") != NULL) {
@@ -388,27 +368,27 @@ static void exit_passthrough(int fd) {
     }
 }
 
-int uart_hvf_test_buzzer(int fd, int duration_ms) {
+int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms) {
     char command[64];
     int result;
 
-    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0 || enter_passthrough(fd) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
         return -1;
     }
     snprintf(command, sizeof(command), "buzzer_on %d", duration_ms);
-    result = run_command_until_ok(fd, command, duration_ms + 4000);
-    exit_passthrough(fd);
+    result = run_command_until_ok(uart, command, duration_ms + 4000);
+    exit_passthrough(uart);
     return result;
 }
 
-int uart_hvf_test_spi(int fd) {
+int uart_hvf_test_spi(platform_uart_t uart) {
     char response[2048];
     int result = -1;
     static const char *const spi_passthrough_commands[] = {
         "ipc_passthrough", "ipc_passtrough"
     };
 
-    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0) {
         return -1;
     }
 
@@ -416,7 +396,7 @@ int uart_hvf_test_spi(int fd) {
     // 這個指令結束後韌體會自行回到 WLE console，因此不要再下 exit 指令。
     int entered = 0;
     for (size_t i = 0; i < sizeof(spi_passthrough_commands) / sizeof(spi_passthrough_commands[0]); ++i) {
-        if (send_command_capture(fd, spi_passthrough_commands[i], response, sizeof(response), 2000) != 0) {
+        if (send_command_capture(uart, spi_passthrough_commands[i], response, sizeof(response), 2000) != 0) {
             continue;
         }
         spi_debug_dump("passthrough response", response);
@@ -433,14 +413,14 @@ int uart_hvf_test_spi(int fd) {
     }
 
     for (int i = 0; i < 3; ++i) {
-        write_all(fd, "\r");
-        usleep(SENSOR_WAIT_MS * 1000);
+        write_all(uart, "\r");
+        platform_sleep_ms(SENSOR_WAIT_MS);
     }
-    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0) {
         return -1;
     }
 
-    if (run_command_until_ok_capture(fd, "ipc_spi_rx_echo_auto", SPI_RX_TIMEOUT_MS,
+    if (run_command_until_ok_capture(uart, "ipc_spi_rx_echo_auto", SPI_RX_TIMEOUT_MS,
                                      response, sizeof(response)) == 0) {
         spi_debug_dump("ipc_spi_rx_echo_auto response", response);
         result = 0;
@@ -451,7 +431,7 @@ int uart_hvf_test_spi(int fd) {
     return result;
 }
 
-int uart_hvf_test_button(int fd, int wait_seconds) {
+int uart_hvf_test_button(platform_uart_t uart, int wait_seconds) {
     char command[64];
     int timeout_ms;
     int result;
@@ -459,53 +439,53 @@ int uart_hvf_test_button(int fd, int wait_seconds) {
     if (wait_seconds <= 0) {
         return -1;
     }
-    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0 || enter_passthrough(fd) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
         return -1;
     }
 
     snprintf(command, sizeof(command), "gpio_button %d", wait_seconds);
     timeout_ms = wait_seconds * 1000 + 800;
-    result = run_command_until_ok(fd, command, timeout_ms);
+    result = run_command_until_ok(uart, command, timeout_ms);
 
     // 無論成功失敗，都要退出 passthrough，避免後續指令卡在同一模式。
-    exit_passthrough(fd);
+    exit_passthrough(uart);
     return result;
 }
 
-int uart_hvf_test_led(int fd, int led_index) {
-    return uart_hvf_set_led(fd, led_index, 1);
+int uart_hvf_test_led(platform_uart_t uart, int led_index) {
+    return uart_hvf_set_led(uart, led_index, 1);
 }
 
-int uart_hvf_set_led(int fd, int led_index, int on) {
+int uart_hvf_set_led(platform_uart_t uart, int led_index, int on) {
     char command[32];
     int result;
 
     if ((led_index != 1 && led_index != 2) ||
-        drain_until_idle(fd, SENSOR_IDLE_MS) != 0 || enter_passthrough(fd) != 0) {
+        drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
         return -1;
     }
 
     snprintf(command, sizeof(command), "%s %d", on ? "led_on" : "led_off", led_index);
-    result = run_command_until_ok(fd, command, 1500);
-    exit_passthrough(fd);
+    result = run_command_until_ok(uart, command, 1500);
+    exit_passthrough(uart);
     return result;
 }
 
-int uart_hvf_probe_sensors(int fd, uart_hvf_sensor_result_t *result) {
-    sensor_probe_context_t context = {.fd = fd};
+int uart_hvf_probe_sensors(platform_uart_t uart, uart_hvf_sensor_result_t *result) {
+    sensor_probe_context_t context = {.uart = uart};
 
     if (result == NULL) {
         return -1;
     }
     memset(result, 0, sizeof(*result));
 
-    if (drain_until_idle(fd, SENSOR_IDLE_MS) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0) {
         return -1;
     }
 
-    write_all(fd, "\r");
-    usleep(SENSOR_WAIT_MS * 1000);
-    read_to_buffer(fd, context.response, sizeof(context.response), 300);
+    write_all(uart, "\r");
+    platform_sleep_ms(SENSOR_WAIT_MS);
+    read_to_buffer(uart, context.response, sizeof(context.response), 300);
 
     result->sht41 = run_sensor_probe(&context, "sht41");
     result->ens210 = run_sensor_probe(&context, "ens210");

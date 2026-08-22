@@ -9,21 +9,22 @@
 #define UART_HVF_H
 
 #include <stddef.h>
+#include "platform_io.h"
 
-#define UART_HVF_DEFAULT_PORT "/dev/tty.usbserial-0001"
+#define UART_HVF_DEFAULT_PORT (platform_default_uart_port())
 
 void uart_hvf_set_debug(int enabled);
 
-// 成功回傳 fd，失敗回 -1
-int uart_hvf_open(const char *port);
-void uart_hvf_close(int fd);
+// 成功回傳跨平台 UART handle，失敗回 PLATFORM_UART_INVALID
+platform_uart_t uart_hvf_open(const char *port);
+void uart_hvf_close(platform_uart_t uart);
 
 // 丟棄累積的輸入（例如換板子時的開機訊息），等到連續 idle_ms 無資料為止
-void uart_hvf_flush_input(int fd, int idle_ms);
+void uart_hvf_flush_input(platform_uart_t uart, int idle_ms);
 
 // 讀取 STM32 unique device ID
 // passthrough = 0 讀 WLE；= 1 進 passthrough 讀 WBA
 // 成功回 0，失敗回 -1
-int uart_hvf_read_stm32_id(int fd, int passthrough, char *out, size_t out_len);
+int uart_hvf_read_stm32_id(platform_uart_t uart, int passthrough, char *out, size_t out_len);
 
 #endif  // UART_HVF_H
