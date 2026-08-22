@@ -28,6 +28,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const serialPollRef = useRef(null);
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
+  const serialWleRef = useRef('');
+  const serialWbaRef = useRef('');
+  const testResultsRef = useRef(null);
+  const testDataRef = useRef(null);
   const [testResults, setTestResults] = useState({
     getSensorIC: null,
     sht41: null,
@@ -52,6 +56,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     temperature: 0,
     pressure: 0,
   });
+
+  // WebSocket 連線不因每筆測試事件重建；用 ref 讀取最新 state。
+  serialWleRef.current = serialWle;
+  serialWbaRef.current = serialWba;
+  testResultsRef.current = testResults;
+  testDataRef.current = testData;
 
   const testItems = [
     { key: 'getSensorIC', name: t.sensorIQC.getSensorIC, icon: '🔌' },
@@ -98,7 +108,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   };
 
   const resetTest = () => {
-    setTestResults({
+    const emptyResults = {
       getSensorIC: null,
       sht41: null,
       ens210: null,
@@ -113,14 +123,18 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       testOrangeLED: null,
       testBuzzer: null,
       testSPI: null,
-    });
-    setTestData({
+    };
+    const emptyData = {
       sensors: [],
       sensorMeasurements: {},
       humidity: 0,
       temperature: 0,
       pressure: 0,
-    });
+    };
+    testResultsRef.current = emptyResults;
+    testDataRef.current = emptyData;
+    setTestResults(emptyResults);
+    setTestData(emptyData);
   };
 
   // 監聽 WebSocket 事件
@@ -155,7 +169,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         const { serial, stage, status, detail } = payload.data;
 
         // 只更新當前測試的 SN
-        if (serial === serialWle) {
+        if (serial === serialWleRef.current) {
           if (stage === 'testBuzzer' && status === 'testing' &&
               buzzerPromptRef.current !== serial) {
             buzzerPromptRef.current = serial;
@@ -195,7 +209,9 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             }
           }
 
-          setTestResults(prev => ({ ...prev, [stage]: status }));
+          const newResults = { ...testResultsRef.current, [stage]: status };
+          testResultsRef.current = newResults;
+          setTestResults(newResults);
 
           if (status === 'pass' || status === 'fail') {
             setRunningStage(prev => (prev === stage ? null : prev));
@@ -205,32 +221,32 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
           }
 
           if (detail) {
-            setTestData(prev => {
-              // 只有有明確偵測資訊時才更新 sensors，避免其他 stage 把結果覆蓋成空值
-              let nextSensors = prev.sensors;
-              if (stage === 'getSensorIC') {
-                nextSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
-                  .filter(sensor => detail[sensor] === true);
-              } else if (detail.sensor && detail.detected === true) {
-                nextSensors = prev.sensors.includes(detail.sensor)
-                  ? prev.sensors
-                  : [...prev.sensors, detail.sensor];
-              }
+            const previousData = testDataRef.current;
+            // 只有有明確偵測資訊時才更新 sensors，避免其他 stage 把結果覆蓋成空值
+            let nextSensors = previousData.sensors;
+            if (stage === 'getSensorIC') {
+              nextSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
+                .filter(sensor => detail[sensor] === true);
+            } else if (detail.sensor && detail.detected === true) {
+              nextSensors = previousData.sensors.includes(detail.sensor)
+                ? previousData.sensors
+                : [...previousData.sensors, detail.sensor];
+            }
 
-              return {
-                ...prev,
-                ...detail,
-                sensors: nextSensors,
-                sensorMeasurements: {
-                  ...prev.sensorMeasurements,
-                  [stage]: detail,
-                },
-              };
-            });
+            const nextData = {
+              ...previousData,
+              ...detail,
+              sensors: nextSensors,
+              sensorMeasurements: {
+                ...previousData.sensorMeasurements,
+                [stage]: detail,
+              },
+            };
+            testDataRef.current = nextData;
+            setTestData(nextData);
           }
 
           // 檢查所有測試是否完成
-          const newResults = { ...testResults, [stage]: status };
           const allStages = testItems.map(item => item.key);
           const isFinished = allStages.every(s => newResults[s] === 'pass' || newResults[s] === 'fail');
 
@@ -243,7 +259,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
               message.error(t.sensorIQC.testFailed);
             }
             // 測試結束後自動保存結果
-            saveTestRecord(serial, newResults, { ...testData, ...detail });
+            saveTestRecord(serial, newResults, testDataRef.current);
           }
         }
       }
@@ -259,7 +275,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       clearInterval(serialPollRef.current);
       clearTimeout(readTimeoutRef.current);
     };
-  }, [serialWle, testResults, testData]); // 當 SN 改變時，重新建立監聽邏輯
+  }, []); // 保持單一連線，避免 testing/pass 連續事件間出現斷線空窗
 
   const handleReadSerial = async () => {
     // 重新讀序號時，先把先前測試狀態全部清掉，避免沿用舊的 PASS/FAIL
@@ -375,7 +391,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         test_time: new Date().toISOString(), // 使用 ISO 格式
         temperature: parseFloat(currentData.temperature) || null,
         test_data: JSON.stringify({
-          serial_wba: serialWba,
+          serial_wba: serialWbaRef.current,
           sensors: currentData.sensors,
           humidity: currentData.humidity,
           temperature: currentData.temperature,

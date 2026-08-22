@@ -133,7 +133,12 @@ python tester.py continuous 3
 cd tester
 make sensor_watcher
 ./sensor_watcher
+
+# 沒有實際硬體時，不會開啟 UART，並產生模擬序號與通過的測試資料
+./sensor_watcher --simulate
 ```
+
+`--simulate` 會保留共享檔案與 HTTP/WebSocket 的完整流程，只將 UART 硬體交互換成模擬資料，適合本機開發與前後端整合測試。
 
 > 必須在 `tester/` 目錄下執行，程式以相對路徑 `../shared/sensor_test.txt` 監看指令。
 
@@ -286,4 +291,3 @@ watcher 以 `popen()` 執行該指令，檢查 `ok` 後從 `data` 取出 `unique
 | `POST rejected by backend: HTTP 422` | `stage` 或 `status` 拼錯 |
 | `POST failed: Connection refused` | 後端未啟動 |
 | watcher 有跡、前端無反應 | serial 對不上，或 WebSocket 未連線 |
-

@@ -7,7 +7,7 @@
  * serial port 在啟動時開一次並常駐，避免反覆開關 tty 造成裝置重置
  *
  * 編譯：make sensor_watcher
- * 執行：cd tester && ./sensor_watcher [--port /dev/ttyX] [--debug]
+ * 執行：cd tester && ./sensor_watcher [--port /dev/ttyX] [--debug] [--simulate]
  *
  * 流程：
  *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "SEARCH" 或 "TEST <SERIAL>"
@@ -39,6 +39,7 @@
 #define BOARD_SWAP_IDLE_MS 800
 
 static int uart_fd = -1;
+static int simulate_mode = 0;
 static volatile sig_atomic_t keep_running = 1;
 
 static void handle_signal(int signum) {
@@ -134,11 +135,20 @@ void run_test_stage(const char *stage, const char *serial) {
         send_event(serial, stage, "testing", NULL);
     }
 
-    if (!uart_available) {
-        fprintf(stderr, "[WARN] UART unavailable; simulating stage '%s' without device\n", stage);
+    if (simulate_mode) {
+        printf("[SIMULATE] ");
+    } else if (!uart_available) {
+        fprintf(stderr, "[WARN] UART unavailable for stage '%s'\n", stage);
     }
 
     if (strcmp(stage, "getSensorIC") == 0) {
+        if (simulate_mode) {
+            snprintf(detail, sizeof(detail),
+                     "\"sht41\":false,\"ens210\":true,\"lps22df\":true,\"bme690\":true,\"probe_completed\":true");
+            send_event(serial, stage, "pass", detail);
+            printf("pass  {%s}\n", detail);
+            return;
+        }
         if (!uart_available) {
             snprintf(detail, sizeof(detail),
                      "\"sht41\":false,\"ens210\":false,\"lps22df\":false,\"bme690\":false,\"probe_completed\":false");
@@ -165,6 +175,28 @@ void run_test_stage(const char *stage, const char *serial) {
 
     if (strcmp(stage, "sht41") == 0 || strcmp(stage, "ens210") == 0 ||
         strcmp(stage, "lps22df") == 0 || strcmp(stage, "bme690") == 0) {
+        if (simulate_mode) {
+            int offset = snprintf(detail, sizeof(detail),
+                                  "\"sensor\":\"%s\",\"detected\":true", stage);
+            if (strcmp(stage, "sht41") == 0 || strcmp(stage, "ens210") == 0 ||
+                strcmp(stage, "bme690") == 0) {
+                offset += snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                                   ",\"temperature\":%.2f,\"humidity\":%.2f",
+                                   22.0 + (rand() % 80) / 10.0,
+                                   40.0 + (rand() % 200) / 10.0);
+            }
+            if (strcmp(stage, "lps22df") == 0 || strcmp(stage, "bme690") == 0) {
+                offset += snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                                   ",\"pressure\":%.2f", 995.0 + (rand() % 250) / 10.0);
+            }
+            if (strcmp(stage, "bme690") == 0) {
+                snprintf(detail + offset, sizeof(detail) - (size_t)offset,
+                         ",\"gas_resistance\":%.2f", 8000.0 + (rand() % 4000));
+            }
+            send_event(serial, stage, "pass", detail);
+            printf("pass  {%s}\n", detail);
+            return;
+        }
         if (!uart_available) {
             snprintf(detail, sizeof(detail), "\"sensor\":\"%s\",\"detected\":false", stage);
             send_event(serial, stage, "fail", detail);
@@ -201,11 +233,22 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testBuzzer") == 0 || strcmp(stage, "testSPI") == 0) {
-        if (!uart_available) {
+        if (simulate_mode) {
+            if (strcmp(stage, "testBuzzer") == 0) {
+                send_event(serial, stage, "testing", NULL);
+                printf("testing  {\"test\":\"testBuzzer\",\"awaiting_user_confirmation\":true}\n");
+                return;
+            }
             const char *status = pass_or_fail(PASS_RATIO);
             snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":true", stage);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
+            return;
+        }
+        if (!uart_available) {
+            snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":false", stage);
+            send_event(serial, stage, "fail", detail);
+            printf("fail  {%s}\n", detail);
             return;
         }
 
@@ -226,13 +269,18 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testOrangeLED") == 0 || strcmp(stage, "testGreenLED") == 0) {
+        if (simulate_mode) {
+            int led_index = strcmp(stage, "testOrangeLED") == 0 ? 1 : 2;
+            send_event(serial, stage, "testing", NULL);
+            printf("testing  {\"led_color\":\"%s\",\"led_index\":%d,\"awaiting_user_confirmation\":true}\n",
+                   led_index == 1 ? "orange" : "blue", led_index);
+            return;
+        }
         if (!uart_available) {
-            const char *status = pass_or_fail(PASS_RATIO);
-            snprintf(detail, sizeof(detail), "\"led_color\":\"%s\",\"lux\":%d",
-                     strcmp(stage, "testOrangeLED") == 0 ? "orange" : "green",
-                     100 + (rand() % 400));
-            send_event(serial, stage, status, detail);
-            printf("%s  {%s}\n", status, detail);
+            snprintf(detail, sizeof(detail), "\"led_color\":\"%s\",\"executed\":false",
+                     strcmp(stage, "testOrangeLED") == 0 ? "orange" : "green");
+            send_event(serial, stage, "fail", detail);
+            printf("fail  {%s}\n", detail);
             return;
         }
 
@@ -253,10 +301,14 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testOrangeLEDOff") == 0 || strcmp(stage, "testGreenLEDOff") == 0) {
-        if (!uart_available) {
+        if (simulate_mode) {
             printf("[LED] %s index=%d => simulated ok\n",
                    stage,
                    strcmp(stage, "testOrangeLEDOff") == 0 ? 1 : 2);
+            return;
+        }
+        if (!uart_available) {
+            printf("[LED] %s => skipped (UART unavailable)\n", stage);
             return;
         }
 
@@ -268,12 +320,18 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testButton") == 0) {
-        if (!uart_available) {
+        if (simulate_mode) {
             const char *status = pass_or_fail(PASS_RATIO);
             snprintf(detail, sizeof(detail), "\"press_count\":%d,\"window_s\":%d",
                      strcmp(status, "pass") == 0 ? 1 : 0, 3);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
+            return;
+        }
+        if (!uart_available) {
+            snprintf(detail, sizeof(detail), "\"press_count\":0,\"window_s\":0");
+            send_event(serial, stage, "fail", detail);
+            printf("fail  {%s}\n", detail);
             return;
         }
 
@@ -317,17 +375,21 @@ void handle_search_command(void) {
     char serial_wba[128];
     char payload[384];
 
-    printf("\n[SEARCH] Flushing UART input...\n");
-    // 換板子時裝置會吐一段開機訊息，先清乾淨再下指令
-    uart_hvf_flush_input(uart_fd, BOARD_SWAP_IDLE_MS);
-
-    printf("[SEARCH] Reading serials from device...\n");
-
-    if (uart_fd < 0) {
-        printf("[SEARCH] UART unavailable; using simulated serials for this session\n");
+    if (simulate_mode) {
+        printf("\n[SEARCH] Generating simulated serials...\n");
         snprintf(serial_wle, sizeof(serial_wle), "SIM-WLE-%ld", (long)time(NULL));
         snprintf(serial_wba, sizeof(serial_wba), "SIM-WBA-%ld", (long)time(NULL));
     } else {
+        if (uart_fd < 0) {
+            printf("\n[SEARCH] UART unavailable; cannot read serials\n\n");
+            return;
+        }
+
+        printf("\n[SEARCH] Flushing UART input...\n");
+        // 換板子時裝置會吐一段開機訊息，先清乾淨再下指令
+        uart_hvf_flush_input(uart_fd, BOARD_SWAP_IDLE_MS);
+        printf("[SEARCH] Reading serials from device...\n");
+
         if (uart_hvf_read_stm32_id(uart_fd, 0, serial_wle, sizeof(serial_wle)) != 0) {
             printf("[SEARCH] Failed to read WLE serial\n\n");
             return;
@@ -411,8 +473,9 @@ void process_command(const char *line) {
 }
 
 static void print_usage(const char *prog) {
-    fprintf(stderr, "usage: %s [--port /dev/ttyX] [--debug]\n", prog);
+    fprintf(stderr, "usage: %s [--port /dev/ttyX] [--debug] [--simulate]\n", prog);
     fprintf(stderr, "  --port   serial port (default: %s)\n", UART_HVF_DEFAULT_PORT);
+    fprintf(stderr, "  --simulate  run without UART hardware and generate passing test data\n");
 }
 
 int main(int argc, char **argv) {
@@ -423,6 +486,8 @@ int main(int argc, char **argv) {
             port = argv[++i];
         } else if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0) {
             uart_hvf_set_debug(1);
+        } else if (strcmp(argv[i], "--simulate") == 0) {
+            simulate_mode = 1;
         } else {
             print_usage(argv[0]);
             return 2;
@@ -439,10 +504,11 @@ int main(int argc, char **argv) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    uart_fd = uart_hvf_open(port);
-    if (uart_fd < 0) {
-        fprintf(stderr, "[WARN] Failed to open serial port: %s; continuing in simulation mode\n", port);
-        uart_fd = -1;
+    if (!simulate_mode) {
+        uart_fd = uart_hvf_open(port);
+        if (uart_fd < 0) {
+            fprintf(stderr, "[WARN] Failed to open serial port: %s\n", port);
+        }
     }
 
     curl_global_init(CURL_GLOBAL_ALL);
@@ -450,7 +516,8 @@ int main(int argc, char **argv) {
     printf("========================================\n");
     printf("Sensor IQC 監看程式\n");
     printf("========================================\n");
-    printf("Serial port: %s\n", port);
+    printf("Mode       : %s\n", simulate_mode ? "SIMULATE (no hardware)" : "HARDWARE");
+    printf("Serial port: %s\n", simulate_mode ? "disabled" : port);
     printf("監看檔案: %s\n", SHARED_FILE);
     printf("事件 API : %s\n", API_EVENTS_URL);
     printf("等待指令 (SEARCH / TEST <SERIAL>)... Ctrl-C 結束\n\n");
