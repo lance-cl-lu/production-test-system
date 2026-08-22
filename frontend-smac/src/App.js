@@ -27,7 +27,8 @@ function App() {
 
   const handleWebSocketMessage = useCallback((message) => {
     console.log('Received WebSocket message:', message);
-    if (message.type === 'test_result' || message.type === 'sensor_test_saved') {
+    if (message.type === 'test_result' || message.type === 'sensor_test_saved' ||
+        message.type === 'sensor_test_updated') {
       // 觸發列表重新載入
       setNewRecordTrigger((prev) => prev + 1);
     }

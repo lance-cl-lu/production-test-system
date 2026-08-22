@@ -46,6 +46,16 @@ static int watcher_lock_fd = -1;
 static int simulate_mode = 0;
 static volatile sig_atomic_t keep_running = 1;
 
+static int stat_mtime_equal(const struct stat *a, const struct stat *b) {
+#ifdef __APPLE__
+    return a->st_mtimespec.tv_sec == b->st_mtimespec.tv_sec &&
+           a->st_mtimespec.tv_nsec == b->st_mtimespec.tv_nsec;
+#else
+    return a->st_mtim.tv_sec == b->st_mtim.tv_sec &&
+           a->st_mtim.tv_nsec == b->st_mtim.tv_nsec;
+#endif
+}
+
 static void handle_signal(int signum) {
     (void)signum;
     keep_running = 0;
@@ -431,6 +441,13 @@ static int sensor_is_detected(const char *stage) {
     return 1;
 }
 
+static int stage_requires_sensor_probe(const char *stage) {
+    return strcmp(stage, "sht41") == 0 ||
+           strcmp(stage, "ens210") == 0 ||
+           strcmp(stage, "lps22df") == 0 ||
+           strcmp(stage, "bme690") == 0;
+}
+
 static void send_test_complete(const char *serial, const char *mode,
                                const char *requested_stage,
                                const char *expected_json) {
@@ -482,7 +499,11 @@ static void handle_stage_command(const char *stage, const char *serial) {
     }
 
     int probed_for_this_stage = 0;
-    if (!sensor_probe_valid || strcmp(sensor_probe_serial, serial) != 0) {
+    // simulate 的非感測器單項測試不需要先跑 getSensorIC。
+    // 實機模式保留原本流程，確保測試前已完成裝置探測。
+    const int needs_probe = !simulate_mode || stage_requires_sensor_probe(stage);
+    if (needs_probe &&
+        (!sensor_probe_valid || strcmp(sensor_probe_serial, serial) != 0)) {
         memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
         run_test_stage("getSensorIC", serial);
         probed_for_this_stage = 1;
@@ -625,7 +646,9 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        if (st_new.st_mtime == st_old.st_mtime) {
+        // UI 可能在同一秒內連續寫入 LED Off 與下一個測項，
+        // 只比較秒會漏掉後一筆，因此必須連奈秒一起比較。
+        if (stat_mtime_equal(&st_new, &st_old)) {
             continue;
         }
 

@@ -15,7 +15,13 @@ router = APIRouter(prefix="/api/sensor", tags=["Sensor Events"])
 logger = logging.getLogger("uvicorn.error") or logging.getLogger(__name__)
 
 latest_sensor_serials: Optional[Dict[str, str]] = None
-active_sensor_runs: Dict[str, Dict[str, Any]] = {}
+active_sensor_run_ids: Dict[str, int] = {}
+pending_read_started_at: Optional[datetime] = None
+
+SENSOR_RESULT_STAGES = [
+    "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
+    "testButton", "testGreenLED", "testOrangeLED", "testBuzzer", "testSPI",
+]
 
 # 和 pcba_events.py 類似的結構，但針對 Sensor
 SHARED_FILE_PATH = "../shared/sensor_test.txt"
@@ -95,8 +101,9 @@ async def read_sensor_serial():
     logger.info("[Sensor:/read-serial] Read serial request received")
 
     try:
-        global latest_sensor_serials
+        global latest_sensor_serials, pending_read_started_at
         latest_sensor_serials = None
+        pending_read_started_at = datetime.now()
         with open(SHARED_FILE_PATH, "w") as f:
             f.write(f"SEARCH\n{datetime.now().isoformat()}\n")
 
@@ -113,7 +120,7 @@ async def read_sensor_serial():
 
 
 @router.post("/serial-found")
-async def sensor_serial_found(request: SerialFoundRequest):
+async def sensor_serial_found(request: SerialFoundRequest, db: Session = Depends(get_db)):
     """
     sensor_watcher 回報從裝置讀到的 WLE / WBA 序號，廣播給前端自動填入。
     """
@@ -123,8 +130,30 @@ async def sensor_serial_found(request: SerialFoundRequest):
     if not serial_wle:
         raise HTTPException(status_code=400, detail="serial_wle is required")
 
-    global latest_sensor_serials
-    latest_sensor_serials = {"serial_wle": serial_wle, "serial_wba": serial_wba}
+    global latest_sensor_serials, pending_read_started_at
+    started_at = pending_read_started_at or datetime.now()
+    pending_read_started_at = None
+
+    # 每次「讀取序號」都是一個新的測試 session。後續 full/single
+    # 測項都更新這一筆，直到下一次讀取序號。
+    db_run = SensorTestRun(
+        serial_wle=serial_wle,
+        serial_wba=serial_wba or None,
+        run_mode="session",
+        requested_stage=None,
+        test_result="PENDING",
+        started_at=started_at,
+        completed_at=started_at,
+    )
+    db.add(db_run)
+    db.commit()
+    db.refresh(db_run)
+    active_sensor_run_ids[serial_wle] = db_run.id
+    latest_sensor_serials = {
+        "serial_wle": serial_wle,
+        "serial_wba": serial_wba,
+        "run_id": db_run.id,
+    }
 
     logger.info(
         f"[Sensor:/serial-found] Received serials: WLE={serial_wle} WBA={serial_wba}"
@@ -133,11 +162,12 @@ async def sensor_serial_found(request: SerialFoundRequest):
     try:
         await manager.broadcast({
             "type": "sensor_serial_found",
-            "data": {"serial_wle": serial_wle, "serial_wba": serial_wba},
+            "data": {"serial_wle": serial_wle, "serial_wba": serial_wba, "run_id": db_run.id},
             "timestamp": datetime.now().isoformat(),
         })
 
-        return {"status": "accepted", "serial_wle": serial_wle, "serial_wba": serial_wba}
+        return {"status": "accepted", "serial_wle": serial_wle,
+                "serial_wba": serial_wba, "run_id": db_run.id}
 
     except Exception as e:
         logger.exception(f"[Sensor:/serial-found] Failed to broadcast serials: {e}")
@@ -207,27 +237,10 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
         if now.tzinfo is not None:
             now = now.replace(tzinfo=None)
 
-        # getSensorIC/testing 是每次 full 或 single 執行的明確起點。
-        if stage == "getSensorIC" and status == "testing":
-            active_sensor_runs[serial] = {
-                "started_at": now,
-                "items": {},
-                "completion": None,
-            }
-
-        run = active_sensor_runs.setdefault(serial, {
-            "started_at": now,
-            "items": {},
-            "completion": None,
-        })
-        if stage == "testComplete":
-            run["completion"] = event.detail or {}
-        elif status in ("pass", "fail"):
-            run["items"][stage] = {
-                "status": status,
-                "detail": event.detail or {},
-                "tested_at": now,
-            }
+        saved_run = None
+        if stage in SENSOR_RESULT_STAGES and status in ("pass", "fail"):
+            saved_run = _save_sensor_session_item(serial, stage, status,
+                                                  event.detail or {}, now, db)
 
         # 建立 WebSocket 訊息
         message = {
@@ -248,19 +261,19 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
             extra={"serial": serial, "stage": stage, "status": status},
         )
 
-        saved = _try_finalize_sensor_run(serial, db)
-        if saved:
+        if saved_run:
             await manager.broadcast({
-                "type": "sensor_test_saved",
+                "type": "sensor_test_updated",
                 "data": {
                     "serial": serial,
-                    "run_id": saved.id,
-                    "test_result": saved.test_result,
+                    "run_id": saved_run.id,
+                    "test_result": saved_run.test_result,
                 },
                 "timestamp": datetime.now().isoformat(),
             })
 
-        return {"status": "saved" if saved else "accepted", "run_id": saved.id if saved else None}
+        return {"status": "saved" if saved_run else "accepted",
+                "run_id": saved_run.id if saved_run else None}
 
     except Exception as e:
         logger.exception(f"[Sensor:/events] Failed to process event: {e}")
@@ -268,47 +281,47 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
         raise HTTPException(status_code=500, detail="Failed to process event")
 
 
-def _try_finalize_sensor_run(serial: str, db: Session) -> Optional[SensorTestRun]:
-    run = active_sensor_runs.get(serial)
-    if not run or not run.get("completion"):
+def _save_sensor_session_item(serial: str, stage: str, status: str,
+                              detail: Dict[str, Any], tested_at: datetime,
+                              db: Session) -> Optional[SensorTestRun]:
+    run_id = active_sensor_run_ids.get(serial)
+    db_run = db.query(SensorTestRun).options(selectinload(SensorTestRun.items)).filter(
+        SensorTestRun.id == run_id
+    ).first() if run_id else None
+    if not db_run:
+        # Backend 重啟後恢復該 WLE 最新的 session。
+        db_run = db.query(SensorTestRun).options(selectinload(SensorTestRun.items)).filter(
+            SensorTestRun.serial_wle == serial,
+            SensorTestRun.run_mode == "session",
+        ).order_by(SensorTestRun.started_at.desc()).first()
+    if not db_run:
+        logger.warning("No sensor session for event serial=%s stage=%s", serial, stage)
         return None
 
-    completion = run["completion"]
-    expected = completion.get("expected_stages") or []
-    if any(run["items"].get(stage, {}).get("status") not in ("pass", "fail") for stage in expected):
-        return None
+    item = next((existing for existing in db_run.items if existing.stage == stage), None)
+    if not item:
+        item = SensorTestItem(run_id=db_run.id, stage=stage,
+                              sequence=SENSOR_RESULT_STAGES.index(stage) + 1)
+        db_run.items.append(item)
+    item.sensor_name = detail.get("sensor")
+    item.status = status
+    item.temperature_c = detail.get("temperature")
+    item.humidity_percent = detail.get("humidity")
+    item.pressure_hpa = detail.get("pressure")
+    item.gas_resistance_ohm = detail.get("gas_resistance")
+    item.detail_json = json.dumps(detail, ensure_ascii=False)
+    item.tested_at = tested_at
+    db_run.completed_at = datetime.now()
 
-    final_result = "PASS" if expected and all(
-        run["items"][stage]["status"] == "pass" for stage in expected
-    ) else "FAIL"
-    db_run = SensorTestRun(
-        serial_wle=serial,
-        serial_wba=completion.get("serial_wba") or None,
-        run_mode=completion.get("run_mode", "full"),
-        requested_stage=completion.get("requested_stage") or None,
-        test_result=final_result,
-        started_at=run["started_at"],
-        completed_at=datetime.now(),
-    )
-    for sequence, stage in enumerate(expected, start=1):
-        item = run["items"][stage]
-        detail = item["detail"]
-        db_run.items.append(SensorTestItem(
-            sequence=sequence,
-            stage=stage,
-            sensor_name=detail.get("sensor"),
-            status=item["status"],
-            temperature_c=detail.get("temperature"),
-            humidity_percent=detail.get("humidity"),
-            pressure_hpa=detail.get("pressure"),
-            gas_resistance_ohm=detail.get("gas_resistance"),
-            detail_json=json.dumps(detail, ensure_ascii=False),
-            tested_at=item["tested_at"],
-        ))
-    db.add(db_run)
+    statuses = {existing.stage: existing.status for existing in db_run.items}
+    if any(value == "fail" for value in statuses.values()):
+        db_run.test_result = "FAIL"
+    elif all(statuses.get(name) == "pass" for name in SENSOR_RESULT_STAGES):
+        db_run.test_result = "PASS"
+    else:
+        db_run.test_result = "PENDING"
     db.commit()
     db.refresh(db_run)
-    del active_sensor_runs[serial]
     return db_run
 
 
@@ -328,10 +341,10 @@ def get_sensor_test_runs(
     if test_result:
         query = query.filter(SensorTestRun.test_result == test_result)
     if start_date:
-        query = query.filter(SensorTestRun.completed_at >= start_date)
+        query = query.filter(SensorTestRun.started_at >= start_date)
     if end_date:
-        query = query.filter(SensorTestRun.completed_at <= end_date)
-    return query.order_by(SensorTestRun.completed_at.desc()).offset(skip).limit(limit).all()
+        query = query.filter(SensorTestRun.started_at <= end_date)
+    return query.order_by(SensorTestRun.started_at.desc()).offset(skip).limit(limit).all()
 
 
 @router.delete("/test-runs/{run_id}", status_code=204)

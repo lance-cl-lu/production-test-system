@@ -15,6 +15,7 @@ const { Title, Text } = Typography;
 // 讀取序號的提示訊息共用同一個 key，後續訊息會就地取代它而非另開一則
 const READ_SERIAL_MSG_KEY = 'sensor-read-serial';
 const READ_SERIAL_TIMEOUT_MS = 30000;
+const STAGE_TIMEOUT_MS = 30000;
 
 const getLedOffStage = (stage) => {
   if (stage === 'testGreenLED') return 'testGreenLEDOff';
@@ -32,6 +33,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [readingSerial, setReadingSerial] = useState(false);
   const readTimeoutRef = useRef(null);
   const serialPollRef = useRef(null);
+  const stageTimeoutRef = useRef(null);
+  const stageTimeoutStageRef = useRef(null);
   const serialWleRef = useRef('');
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
@@ -219,6 +222,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
           }
 
           if (status === 'pass' || status === 'fail') {
+            if (stageTimeoutStageRef.current === stage) {
+              clearTimeout(stageTimeoutRef.current);
+              stageTimeoutStageRef.current = null;
+            }
             setRunningStage(prev => (prev === stage ? null : prev));
             if (stage === 'testGreenLED' || stage === 'testOrangeLED') {
               ledPromptRef.current = null;
@@ -280,6 +287,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       ws.close();
       clearInterval(serialPollRef.current);
       clearTimeout(readTimeoutRef.current);
+      clearTimeout(stageTimeoutRef.current);
     };
   }, [t, reportLedDecision]);
 
@@ -354,11 +362,26 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'testing' };
     setTestResults(testResultsRef.current);
 
+    clearTimeout(stageTimeoutRef.current);
+    stageTimeoutStageRef.current = stageKey;
+    stageTimeoutRef.current = setTimeout(() => {
+      setRunningStage(current => {
+        if (current !== stageKey) return current;
+        testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
+        setTestResults(testResultsRef.current);
+        message.error(t.sensorIQC.stageFailed);
+        stageTimeoutStageRef.current = null;
+        return null;
+      });
+    }, STAGE_TIMEOUT_MS);
+
     try {
       await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
     } catch (error) {
       console.error('Failed to run stage:', error);
       message.error(t.sensorIQC.stageFailed);
+      clearTimeout(stageTimeoutRef.current);
+      stageTimeoutStageRef.current = null;
       setRunningStage(null);
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: null };
       setTestResults(testResultsRef.current);

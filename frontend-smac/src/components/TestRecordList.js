@@ -6,11 +6,11 @@ import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
 
 const { RangePicker } = DatePicker;
-const resultTag = (result) => (
-  <Tag color={result === 'PASS' || result === 'pass' ? 'green' : 'red'}>
-    {String(result || '-').toUpperCase()}
-  </Tag>
-);
+const resultTag = (result) => {
+  const normalized = String(result || '').toLowerCase();
+  const color = normalized === 'pass' ? 'green' : normalized === 'fail' ? 'red' : 'default';
+  return <Tag color={color}>{normalized ? normalized.toUpperCase() : '-'}</Tag>;
+};
 const numberValue = (value, digits = 2) =>
   value === null || value === undefined ? '-' : Number(value).toFixed(digits);
 
@@ -71,28 +71,50 @@ const SensorRunList = ({ refreshTrigger, t }) => {
 
   useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
 
-  const detailColumns = [
-    { title: t.sequence, dataIndex: 'sequence', width: 70 },
-    { title: t.stage, dataIndex: 'stage' },
-    { title: t.sensorName, dataIndex: 'sensor_name', render: (value) => value || '-' },
-    { title: t.testResult, dataIndex: 'status', render: resultTag },
-    { title: t.temperature, dataIndex: 'temperature_c', render: (value) => numberValue(value) },
-    { title: t.humidity, dataIndex: 'humidity_percent', render: (value) => numberValue(value) },
-    { title: t.pressure, dataIndex: 'pressure_hpa', render: (value) => numberValue(value) },
-    { title: t.gasResistance, dataIndex: 'gas_resistance_ohm', render: (value) => numberValue(value) },
-    { title: t.testTime, dataIndex: 'tested_at', render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+  const sensorDetailStages = ['sht41', 'ens210', 'lps22df', 'bme690'];
+  const sensorStages = [
+    'getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690',
+    'testButton', 'testGreenLED', 'testOrangeLED', 'testBuzzer', 'testSPI',
   ];
+  const stageResult = (record, stage) =>
+    (record.items || []).find((item) => item.stage === stage)?.status;
+
+  const sensorDetailColumns = [
+    { title: t.stage, dataIndex: 'stage', width: 140,
+      render: (stage) => t.sensorIQC?.[stage] || stage },
+    { title: t.testResult, dataIndex: 'status', width: 100, render: resultTag },
+    { title: t.temperature, dataIndex: 'temperature_c',
+      render: (value) => numberValue(value) },
+    { title: t.humidity, dataIndex: 'humidity_percent',
+      render: (value) => numberValue(value) },
+    { title: t.pressure, dataIndex: 'pressure_hpa',
+      render: (value) => numberValue(value) },
+    { title: t.gasResistance, dataIndex: 'gas_resistance_ohm',
+      render: (value) => numberValue(value) },
+  ];
+
+  const sensorDetails = (record) => sensorDetailStages.map((stage) => ({
+    stage,
+    ...((record.items || []).find((item) => item.stage === stage) || {}),
+  }));
+
   const columns = [
-    { title: t.id, dataIndex: 'id', width: 70 },
-    { title: t.serialWle, dataIndex: 'serial_wle' },
-    { title: t.serialWba, dataIndex: 'serial_wba', render: (value) => value || '-' },
-    { title: t.runMode, dataIndex: 'run_mode', render: (value) => value === 'single' ? t.singleTest : t.fullTest },
-    { title: t.requestedStage, dataIndex: 'requested_stage', render: (value) => value || '-' },
-    { title: t.testResult, dataIndex: 'test_result', render: resultTag },
-    { title: t.completedAt, dataIndex: 'completed_at', render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+    { title: t.serialWle, dataIndex: 'serial_wle', fixed: 'left', width: 180 },
+    { title: t.serialWba, dataIndex: 'serial_wba', fixed: 'left', width: 180,
+      render: (value) => value || '-' },
+    { title: t.testTime, dataIndex: 'started_at', width: 170,
+      render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+    ...sensorStages.map((stage) => ({
+      title: t.sensorIQC?.[stage] || stage,
+      key: stage,
+      width: 135,
+      align: 'center',
+      render: (_, record) => resultTag(stageResult(record, stage)),
+    })),
     {
       title: t.delete,
       width: 90,
+      fixed: 'right',
       render: (_, record) => (
         <Button danger size="small" onClick={async () => {
           try {
@@ -119,11 +141,18 @@ const SensorRunList = ({ refreshTrigger, t }) => {
       rowKey="id"
       loading={loading}
       expandable={{
-        expandedRowRender: (record) => <Table columns={detailColumns} dataSource={record.items || []}
-          rowKey="id" pagination={false} size="small" />,
-        rowExpandable: (record) => (record.items || []).length > 0,
+        expandedRowRender: (record) => (
+          <Table
+            columns={sensorDetailColumns}
+            dataSource={sensorDetails(record)}
+            rowKey="stage"
+            pagination={false}
+            size="small"
+          />
+        ),
       }}
-      pagination={{ pageSize: 20, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
+      scroll={{ x: 2100 }}
+      pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
     />
   </>;
 };
@@ -172,7 +201,7 @@ const LegacyRecordList = ({ refreshTrigger, t }) => {
     <RecordFilters filters={filters} setFilters={setFilters} onSearch={fetchRecords}
       loading={loading} t={t} serialPlaceholder={t.deviceIdPlaceholder} />
     <Table columns={columns} dataSource={records} rowKey="id" loading={loading}
-      pagination={{ pageSize: 20, showTotal: (total) => `${t.total} ${total} ${t.items}` }} />
+      pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }} />
   </>;
 };
 
