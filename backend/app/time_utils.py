@@ -29,3 +29,11 @@ def taipei_today_start_utc() -> datetime:
     taipei_now = datetime.now(TAIPEI_TZ)
     taipei_midnight = taipei_now.replace(hour=0, minute=0, second=0, microsecond=0)
     return taipei_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def format_taipei(value: datetime | None) -> str:
+    """Format a database UTC timestamp as Taipei local time."""
+    if value is None:
+        return ""
+    aware_utc = to_utc_naive(value).replace(tzinfo=timezone.utc)
+    return aware_utc.astimezone(TAIPEI_TZ).strftime("%Y-%m-%d %H:%M:%S")

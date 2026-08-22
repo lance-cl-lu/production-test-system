@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import case, func
 from pydantic import BaseModel, Field
@@ -8,7 +9,9 @@ from app.routers.websocket import manager
 from app.database import get_db
 from app.models import CloudSyncOutbox, SensorTestRun, SensorTestItem
 from app.schemas import SensorTestRunResponse
-from app.time_utils import taipei_today_start_utc, to_utc_naive, utc_iso, utc_now
+from app.time_utils import format_taipei, taipei_today_start_utc, to_utc_naive, utc_iso, utc_now
+import csv
+import io
 import json
 import logging
 import os
@@ -435,6 +438,80 @@ def get_sensor_test_runs(
     if end_date:
         query = query.filter(SensorTestRun.started_at <= to_utc_naive(end_date))
     return query.order_by(SensorTestRun.started_at.desc()).offset(skip).limit(limit).all()
+
+
+@router.get("/test-runs/export.csv")
+def export_sensor_test_runs_csv(
+    serial_wle: Optional[str] = None,
+    test_result: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    language: Literal["zh-TW", "en-US"] = "zh-TW",
+    db: Session = Depends(get_db),
+):
+    """Export every Sensor session matching the current UI filters."""
+    query = db.query(SensorTestRun).options(selectinload(SensorTestRun.items)).filter(
+        SensorTestRun.run_mode == "session"
+    )
+    if serial_wle:
+        query = query.filter(SensorTestRun.serial_wle == serial_wle)
+    if test_result:
+        query = query.filter(SensorTestRun.test_result == test_result)
+    if start_date:
+        query = query.filter(SensorTestRun.started_at >= to_utc_naive(start_date))
+    if end_date:
+        query = query.filter(SensorTestRun.started_at <= to_utc_naive(end_date))
+
+    runs = query.order_by(SensorTestRun.started_at.desc()).all()
+    stage_labels = {
+        "zh-TW": ["Sensor IC", "sht41", "ens210", "lps22df", "bme690",
+                  "按鈕", "藍色 LED", "橙色 LED", "蜂鳴器", "SPI"],
+        "en-US": ["Sensor IC", "sht41", "ens210", "lps22df", "bme690",
+                  "Button", "Blue LED", "Orange LED", "Buzzer", "SPI"],
+    }[language]
+    base_headers = (["WLE 序號", "WBA 序號", "測試結果", "測試時間（台北）"]
+                    if language == "zh-TW" else
+                    ["WLE Serial", "WBA Serial", "Test Result", "Test Time (Taipei)"])
+    metric_names = (["溫度 (°C)", "濕度 (%)", "壓力 (hPa)", "氣體電阻 (Ω)"]
+                    if language == "zh-TW" else
+                    ["Temperature (°C)", "Humidity (%)", "Pressure (hPa)",
+                     "Gas Resistance (Ω)"])
+    sensor_stages = ["sht41", "ens210", "lps22df", "bme690"]
+    headers = base_headers + stage_labels + [
+        f"{sensor} {metric}" for sensor in sensor_stages for metric in metric_names
+    ]
+
+    def safe(value):
+        if value is None:
+            return ""
+        text = str(value)
+        return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    for run in runs:
+        items = {item.stage: item for item in run.items}
+        row = [safe(run.serial_wle), safe(run.serial_wba), run.test_result,
+               format_taipei(run.started_at)]
+        row.extend(items.get(stage).status if items.get(stage) else ""
+                   for stage in SENSOR_RESULT_STAGES)
+        for stage in sensor_stages:
+            item = items.get(stage)
+            row.extend([
+                item.temperature_c if item else None,
+                item.humidity_percent if item else None,
+                item.pressure_hpa if item else None,
+                item.gas_resistance_ohm if item else None,
+            ])
+        writer.writerow(row)
+
+    filename = f"sensor_test_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=("\ufeff" + output.getvalue()).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/test-runs/stats")

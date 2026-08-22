@@ -44,6 +44,9 @@ export const testRecordsAPI = {
   runSensorStage: (data) => api.post('/api/sensor/run-stage', data),
   reportSensorEvent: (data) => api.post('/api/sensor/events', data),
   getSensorTestRuns: (params) => api.get('/api/sensor/test-runs', { params }),
+  exportSensorTestRuns: (params) => api.get('/api/sensor/test-runs/export.csv', {
+    params, responseType: 'blob', timeout: 60000,
+  }),
   getSensorTestRunStats: () => api.get('/api/sensor/test-runs/stats'),
   deleteSensorTestRun: (id) => api.delete(`/api/sensor/test-runs/${id}`),
 };

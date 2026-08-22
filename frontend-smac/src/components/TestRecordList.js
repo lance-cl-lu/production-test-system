@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, DatePicker, Input, message, Select, Space, Table, Tag } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
 
@@ -17,7 +17,7 @@ const taipeiDateTime = (value) => value ? new Intl.DateTimeFormat('zh-TW', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 }).format(new Date(value)).replaceAll('/', '-') : '-';
 
-const RecordFilters = ({ filters, setFilters, onSearch, loading, t, serialPlaceholder }) => (
+const RecordFilters = ({ filters, setFilters, onSearch, onExport, loading, exporting, t, serialPlaceholder }) => (
   <Space style={{ marginBottom: 16 }} wrap>
     <Input
       placeholder={serialPlaceholder}
@@ -44,12 +44,16 @@ const RecordFilters = ({ filters, setFilters, onSearch, loading, t, serialPlaceh
     <Button icon={<ReloadOutlined />} onClick={onSearch} loading={loading}>
       {t.refresh}
     </Button>
+    <Button icon={<DownloadOutlined />} onClick={onExport} loading={exporting}>
+      {t.exportCsv}
+    </Button>
   </Space>
 );
 
-const SensorRunList = ({ refreshTrigger, t }) => {
+const SensorRunList = ({ refreshTrigger, t, language }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState({ serial: '', test_result: null, dateRange: null });
 
   const fetchRecords = useCallback(async () => {
@@ -73,6 +77,40 @@ const SensorRunList = ({ refreshTrigger, t }) => {
   }, [filters, t.loadDataFailed]);
 
   useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
+
+  const filterParams = useCallback(() => {
+    const params = {};
+    if (filters.serial.trim()) params.serial_wle = filters.serial.trim();
+    if (filters.test_result) params.test_result = filters.test_result;
+    if (filters.dateRange) {
+      params.start_date = filters.dateRange[0].startOf('day').toISOString();
+      params.end_date = filters.dateRange[1].endOf('day').toISOString();
+    }
+    return params;
+  }, [filters]);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const response = await testRecordsAPI.exportSensorTestRuns({
+        ...filterParams(), language,
+      });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sensor_test_records_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message.success(t.exportSuccess);
+    } catch (error) {
+      console.error(error);
+      message.error(t.exportFailed);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const sensorDetailStages = ['sht41', 'ens210', 'lps22df', 'bme690'];
   const sensorStages = [
@@ -139,7 +177,8 @@ const SensorRunList = ({ refreshTrigger, t }) => {
 
   return <>
     <RecordFilters filters={filters} setFilters={setFilters} onSearch={fetchRecords}
-      loading={loading} t={t} serialPlaceholder={t.serialWle} />
+      onExport={exportCsv} loading={loading} exporting={exporting}
+      t={t} serialPlaceholder={t.serialWle} />
     <Table
       columns={columns}
       dataSource={records}
@@ -164,7 +203,7 @@ const SensorRunList = ({ refreshTrigger, t }) => {
 
 const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
   const t = translations[language];
-  return <SensorRunList refreshTrigger={onNewRecord} t={t} />;
+  return <SensorRunList refreshTrigger={onNewRecord} t={t} language={language} />;
 };
 
 export default TestRecordList;
