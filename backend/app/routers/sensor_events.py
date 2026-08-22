@@ -8,6 +8,7 @@ from app.routers.websocket import manager
 from app.database import get_db
 from app.models import CloudSyncOutbox, SensorTestRun, SensorTestItem
 from app.schemas import SensorTestRunResponse
+from app.time_utils import taipei_today_start_utc, to_utc_naive, utc_iso, utc_now
 import json
 import logging
 import os
@@ -33,8 +34,8 @@ def _cloud_payload(run: SensorTestRun) -> Dict[str, Any]:
         "run_mode": run.run_mode,
         "requested_stage": run.requested_stage,
         "test_result": run.test_result,
-        "started_at": run.started_at.isoformat(),
-        "completed_at": run.completed_at.isoformat(),
+        "started_at": utc_iso(run.started_at),
+        "completed_at": utc_iso(run.completed_at),
         "items": [{
             "sync_uuid": item.sync_uuid,
             "sequence": item.sequence,
@@ -46,7 +47,7 @@ def _cloud_payload(run: SensorTestRun) -> Dict[str, Any]:
             "pressure_hpa": item.pressure_hpa,
             "gas_resistance_ohm": item.gas_resistance_ohm,
             "detail_json": item.detail_json,
-            "tested_at": item.tested_at.isoformat(),
+            "tested_at": utc_iso(item.tested_at),
         } for item in run.items],
     }
 
@@ -140,7 +141,7 @@ async def read_sensor_serial():
     try:
         global latest_sensor_serials, pending_read_started_at
         latest_sensor_serials = None
-        pending_read_started_at = datetime.now()
+        pending_read_started_at = utc_now()
         with open(SHARED_FILE_PATH, "w") as f:
             f.write(f"SEARCH\n{datetime.now().isoformat()}\n")
 
@@ -168,7 +169,7 @@ async def sensor_serial_found(request: SerialFoundRequest, db: Session = Depends
         raise HTTPException(status_code=400, detail="serial_wle is required")
 
     global latest_sensor_serials, pending_read_started_at
-    started_at = pending_read_started_at or datetime.now()
+    started_at = pending_read_started_at or utc_now()
     pending_read_started_at = None
 
     # 每次「讀取序號」都是一個新的測試 session。後續 full/single
@@ -271,9 +272,7 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
     )
 
     try:
-        now = event.timestamp or datetime.now()
-        if now.tzinfo is not None:
-            now = now.replace(tzinfo=None)
+        now = to_utc_naive(event.timestamp) if event.timestamp else utc_now()
 
         saved_run = None
         if stage in SENSOR_RESULT_STAGES and status in ("pass", "fail"):
@@ -385,7 +384,7 @@ def _save_sensor_session_item(serial: str, stage: str, status: str,
     item.gas_resistance_ohm = detail.get("gas_resistance")
     item.detail_json = json.dumps(detail, ensure_ascii=False)
     item.tested_at = tested_at
-    db_run.completed_at = datetime.now()
+    db_run.completed_at = utc_now()
 
     statuses = {existing.stage: existing.status for existing in db_run.items}
     if any(value == "fail" for value in statuses.values()):
@@ -432,16 +431,16 @@ def get_sensor_test_runs(
     if test_result:
         query = query.filter(SensorTestRun.test_result == test_result)
     if start_date:
-        query = query.filter(SensorTestRun.started_at >= start_date)
+        query = query.filter(SensorTestRun.started_at >= to_utc_naive(start_date))
     if end_date:
-        query = query.filter(SensorTestRun.started_at <= end_date)
+        query = query.filter(SensorTestRun.started_at <= to_utc_naive(end_date))
     return query.order_by(SensorTestRun.started_at.desc()).offset(skip).limit(limit).all()
 
 
 @router.get("/test-runs/stats")
 def get_sensor_test_run_stats(db: Session = Depends(get_db)):
     """Dashboard statistics based on read-serial Sensor sessions."""
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = taipei_today_start_utc()
     totals = db.query(
         func.count(SensorTestRun.id).label("total"),
         func.sum(case((SensorTestRun.test_result == "PASS", 1), else_=0)).label("passed"),

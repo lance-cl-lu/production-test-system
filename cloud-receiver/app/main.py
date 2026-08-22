@@ -1,5 +1,6 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -14,6 +15,7 @@ DATABASE_URL = os.getenv(
     "mysql+pymysql://clouduser:cloudpassword@cloud-mysql:3306/production_test_cloud",
 )
 CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "local-cloud-key")
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
@@ -87,7 +89,20 @@ def get_db():
 
 
 def parse_datetime(value: Optional[str]) -> datetime:
-    return datetime.fromisoformat(value) if value else datetime.now()
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00")) if value else datetime.now(timezone.utc)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def utc_iso(value: datetime) -> str:
+    return f"{value.replace(tzinfo=None).isoformat()}Z"
+
+
+def taipei_today_start_utc() -> datetime:
+    now = datetime.now(TAIPEI_TZ)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def serialize_run(run: CloudSensorRun) -> Dict[str, Any]:
@@ -98,9 +113,9 @@ def serialize_run(run: CloudSensorRun) -> Dict[str, Any]:
         "run_mode": run.run_mode,
         "requested_stage": run.requested_stage,
         "test_result": run.test_result,
-        "started_at": run.started_at.isoformat(),
-        "completed_at": run.completed_at.isoformat(),
-        "synced_at": run.synced_at.isoformat(),
+        "started_at": utc_iso(run.started_at),
+        "completed_at": utc_iso(run.completed_at),
+        "synced_at": utc_iso(run.synced_at),
         "items": [{
             "sync_uuid": item.sync_uuid,
             "sequence": item.sequence,
@@ -112,7 +127,7 @@ def serialize_run(run: CloudSensorRun) -> Dict[str, Any]:
             "pressure_hpa": item.pressure_hpa,
             "gas_resistance_ohm": item.gas_resistance_ohm,
             "detail_json": item.detail_json,
-            "tested_at": item.tested_at.isoformat(),
+            "tested_at": utc_iso(item.tested_at),
         } for item in run.items],
     }
 
@@ -162,7 +177,7 @@ def sync_batch(batch: SyncBatch, x_api_key: str = Header(default=""), db: Sessio
 
 @app.get("/api/v1/dashboard/stats")
 def stats(db: Session = Depends(get_db)):
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = taipei_today_start_utc()
     row = db.query(
         func.count(CloudSensorRun.id).label("total"),
         func.sum(case((CloudSensorRun.test_result == "PASS", 1), else_=0)).label("passed"),

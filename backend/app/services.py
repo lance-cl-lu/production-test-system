@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 from app.models import TestRecord, CloudUploadLog
 from app.schemas import TestRecordCreate, TestRecordUpdate
+from app.time_utils import to_utc_naive
 
 
 class TestRecordService:
@@ -65,9 +66,9 @@ class TestRecordService:
         if test_result:
             query = query.filter(TestRecord.test_result == test_result)
         if start_date:
-            query = query.filter(TestRecord.test_time >= start_date)
+            query = query.filter(TestRecord.test_time >= to_utc_naive(start_date))
         if end_date:
-            query = query.filter(TestRecord.test_time <= end_date)
+            query = query.filter(TestRecord.test_time <= to_utc_naive(end_date))
         
         return query.order_by(desc(TestRecord.test_time)).offset(skip).limit(limit).all()
     

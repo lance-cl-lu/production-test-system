@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, DatePicker, Input, message, Select, Space, Table, Tabs, Tag } from 'antd';
+import { Button, DatePicker, Input, message, Select, Space, Table, Tag } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
 
@@ -13,6 +12,10 @@ const resultTag = (result) => {
 };
 const numberValue = (value, digits = 2) =>
   value === null || value === undefined ? '-' : Number(value).toFixed(digits);
+const taipeiDateTime = (value) => value ? new Intl.DateTimeFormat('zh-TW', {
+  timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+}).format(new Date(value)).replaceAll('/', '-') : '-';
 
 const RecordFilters = ({ filters, setFilters, onSearch, loading, t, serialPlaceholder }) => (
   <Space style={{ marginBottom: 16 }} wrap>
@@ -105,7 +108,7 @@ const SensorRunList = ({ refreshTrigger, t }) => {
     { title: t.testResult, dataIndex: 'test_result', fixed: 'left', width: 110,
       align: 'center', render: resultTag },
     { title: t.testTime, dataIndex: 'started_at', width: 170,
-      render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+      render: taipeiDateTime },
     ...sensorStages.map((stage) => ({
       title: t.sensorIQC?.[stage] || stage,
       key: stage,
@@ -159,60 +162,9 @@ const SensorRunList = ({ refreshTrigger, t }) => {
   </>;
 };
 
-const LegacyRecordList = ({ refreshTrigger, t }) => {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ serial: '', test_result: null, dateRange: null });
-
-  const fetchRecords = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = {};
-      if (filters.serial.trim()) params.device_id = filters.serial.trim();
-      if (filters.test_result) params.test_result = filters.test_result;
-      if (filters.dateRange) {
-        params.start_date = filters.dateRange[0].startOf('day').toISOString();
-        params.end_date = filters.dateRange[1].endOf('day').toISOString();
-      }
-      const response = await testRecordsAPI.getAll(params);
-      setRecords(response.data);
-    } catch (error) {
-      console.error(error);
-      message.error(t.loadDataFailed);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters, t.loadDataFailed]);
-
-  useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
-
-  const columns = [
-    { title: t.id, dataIndex: 'id', width: 70 },
-    { title: t.serialNumber, dataIndex: 'serial_number' },
-    { title: t.productName, dataIndex: 'product_name' },
-    { title: t.deviceId, dataIndex: 'device_id' },
-    { title: t.testStation, dataIndex: 'test_station' },
-    { title: t.testResult, dataIndex: 'test_result', render: resultTag },
-    { title: t.voltage, dataIndex: 'voltage', render: (value) => numberValue(value) },
-    { title: t.current, dataIndex: 'current', render: (value) => numberValue(value) },
-    { title: t.temperature, dataIndex: 'temperature', render: (value) => numberValue(value, 1) },
-    { title: t.testTime, dataIndex: 'test_time', render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
-  ];
-
-  return <>
-    <RecordFilters filters={filters} setFilters={setFilters} onSearch={fetchRecords}
-      loading={loading} t={t} serialPlaceholder={t.deviceIdPlaceholder} />
-    <Table columns={columns} dataSource={records} rowKey="id" loading={loading}
-      pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }} />
-  </>;
-};
-
 const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
   const t = translations[language];
-  return <Tabs defaultActiveKey="sensor" items={[
-    { key: 'sensor', label: t.sensorRuns, children: <SensorRunList refreshTrigger={onNewRecord} t={t} /> },
-    { key: 'legacy', label: t.legacyRecords, children: <LegacyRecordList refreshTrigger={onNewRecord} t={t} /> },
-  ]} />;
+  return <SensorRunList refreshTrigger={onNewRecord} t={t} />;
 };
 
 export default TestRecordList;

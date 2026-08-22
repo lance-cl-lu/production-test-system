@@ -5,6 +5,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import CloudSyncOutbox, SensorTestRun
 from app.services import CloudUploadService
+from app.time_utils import utc_iso, utc_now
 import json
 import logging
 
@@ -19,13 +20,13 @@ def _run_payload(run):
         "sync_uuid": run.sync_uuid, "serial_wle": run.serial_wle,
         "serial_wba": run.serial_wba, "run_mode": run.run_mode,
         "requested_stage": run.requested_stage, "test_result": run.test_result,
-        "started_at": run.started_at.isoformat(), "completed_at": run.completed_at.isoformat(),
+        "started_at": utc_iso(run.started_at), "completed_at": utc_iso(run.completed_at),
         "items": [{
             "sync_uuid": item.sync_uuid, "sequence": item.sequence, "stage": item.stage,
             "sensor_name": item.sensor_name, "status": item.status,
             "temperature_c": item.temperature_c, "humidity_percent": item.humidity_percent,
             "pressure_hpa": item.pressure_hpa, "gas_resistance_ohm": item.gas_resistance_ohm,
-            "detail_json": item.detail_json, "tested_at": item.tested_at.isoformat(),
+            "detail_json": item.detail_json, "tested_at": utc_iso(item.tested_at),
         } for item in run.items],
     }
 
@@ -79,7 +80,7 @@ async def upload_to_cloud():
             )
             
             if response.status_code in (200, 201):
-                uploaded_at = datetime.now()
+                uploaded_at = utc_now()
                 for entry in pending:
                     entry.status = "UPLOADED"
                     entry.uploaded_at = uploaded_at

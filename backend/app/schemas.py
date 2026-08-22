@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from app.time_utils import utc_iso
 
 
 class TestRecordBase(BaseModel):
@@ -28,6 +29,10 @@ class TestRecordResponse(TestRecordBase):
     created_at: datetime
     updated_at: datetime
 
+    @field_serializer("test_time", "created_at", "updated_at")
+    def serialize_utc_datetimes(self, value: datetime):
+        return utc_iso(value)
+
     class Config:
         from_attributes = True
 
@@ -51,6 +56,10 @@ class CloudUploadLogResponse(BaseModel):
     records_count: int
     status: str
     error_message: Optional[str]
+
+    @field_serializer("upload_time")
+    def serialize_upload_time(self, value: datetime):
+        return utc_iso(value)
 
     class Config:
         from_attributes = True
@@ -76,6 +85,10 @@ class SensorTestItemResponse(BaseModel):
     detail_json: Optional[str]
     tested_at: datetime
 
+    @field_serializer("tested_at")
+    def serialize_tested_at(self, value: datetime):
+        return utc_iso(value)
+
     class Config:
         from_attributes = True
 
@@ -92,6 +105,10 @@ class SensorTestRunResponse(BaseModel):
     completed_at: datetime
     created_at: datetime
     items: List[SensorTestItemResponse]
+
+    @field_serializer("started_at", "completed_at", "created_at")
+    def serialize_utc_datetimes(self, value: datetime):
+        return utc_iso(value)
 
     class Config:
         from_attributes = True
