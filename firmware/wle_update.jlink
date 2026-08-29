@@ -1,0 +1,8 @@
+Device STM32WLE5CC
+SelectInterface SWD
+Speed 4000
+connect
+LoadFile ./wle_boot.elf
+LoadFile ./wle_app.elf
+go
+exit

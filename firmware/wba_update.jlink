@@ -1,0 +1,8 @@
+Device STM32WBA55UG
+SelectInterface SWD
+Speed 4000
+connect
+LoadFile ./wba_boot.elf
+LoadFile ./wba_app.elf
+go
+exit

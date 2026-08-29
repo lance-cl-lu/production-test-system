@@ -1,0 +1,7 @@
+Device STM32WBA55UG
+SelectInterface SWD
+Speed 4000
+connect
+LoadFile ./mfg.bin,0x080FE000
+go
+exit

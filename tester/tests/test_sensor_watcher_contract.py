@@ -68,6 +68,8 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("--output", type=Path,
                         help="write the normalized contract JSON for cross-platform comparison")
+    parser.add_argument("--single-buzzer", action="store_true",
+                        help="verify that a single buzzer test does not trigger a sensor probe")
     args = parser.parse_args()
     binary = args.binary.resolve()
     if not binary.exists():
@@ -83,12 +85,15 @@ def main():
         command_file.write_text("", encoding="utf-8")
         process = subprocess.Popen(
             [str(binary), "--simulate", "--command-file", str(command_file),
+             "--lock-file", str(Path(directory) / "sensor_watcher.lock"),
              "--api-base-url", f"http://127.0.0.1:{server.server_port}"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         try:
             time.sleep(1.2)  # watcher records the initial file timestamp first
-            command_file.write_text("TEST CONTRACT-001\n", encoding="utf-8")
+            command = ("STAGE testBuzzer CONTRACT-001\n" if args.single_buzzer
+                       else "TEST CONTRACT-001\n")
+            command_file.write_text(command, encoding="utf-8")
             if not store.wait_for_complete(15):
                 raise AssertionError("watcher did not emit testComplete within 15 seconds")
         finally:
@@ -102,6 +107,27 @@ def main():
             server.server_close()
 
     contract = normalized_contract(store.events)
+    if args.single_buzzer:
+        expected_contract = [
+            {
+                "stage": "testBuzzer",
+                "status": "testing",
+                "detail_keys": ["awaiting_user_confirmation"],
+            },
+            {
+                "stage": "testComplete",
+                "status": "pass",
+                "detail_keys": ["expected_stages", "requested_stage", "run_mode", "serial_wba"],
+            },
+        ]
+        if contract != expected_contract:
+            raise AssertionError(
+                f"single buzzer contract mismatch\nexpected={expected_contract}\nactual={contract}"
+                f"\nstdout={stdout}\nstderr={stderr}"
+            )
+        print("PASS: single buzzer test emitted no getSensorIC event")
+        return
+
     fixture = Path(__file__).with_name("sensor_watcher_reference_contract.json")
     expected_contract = json.loads(fixture.read_text(encoding="utf-8"))
     if contract != expected_contract:

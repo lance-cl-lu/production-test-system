@@ -11,7 +11,7 @@
  *
  * 流程：
  *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "SEARCH" 或 "TEST <SERIAL>"
- *   2. SEARCH 讀取 WLE / WBA；TEST/STAGE 都先探測 Sensor IC 再執行
+ *   2. SEARCH 讀取 WLE / WBA；TEST 先探測 Sensor IC，單項 Sensor 測試才會自動探測
  *   3. 結果以 HTTP POST 送到後端，再由後端 WebSocket 廣播給前端
  */
 
@@ -42,6 +42,7 @@ static platform_lock_t watcher_lock = {.value = -1};
 static int simulate_mode = 0;
 static volatile sig_atomic_t keep_running = 1;
 static const char *command_file = SHARED_FILE;
+static const char *lock_file = WATCHER_LOCK_FILE;
 static char api_events_url[512] = API_EVENTS_URL;
 static char api_serial_found_url[512] = API_SERIAL_FOUND_URL;
 
@@ -239,6 +240,22 @@ void run_test_stage(const char *stage, const char *serial) {
 
     if (strcmp(stage, "testBuzzer") == 0 || strcmp(stage, "testSPI") == 0) {
         if (strcmp(stage, "testBuzzer") == 0) {
+            if (!simulate_mode) {
+                if (!uart_available) {
+                    send_event(serial, stage, "fail",
+                               "\"test\":\"testBuzzer\",\"executed\":false");
+                    printf("fail  {\"test\":\"testBuzzer\",\"executed\":false}\n");
+                    return;
+                }
+
+                if (uart_hvf_test_buzzer(uart_fd, 3000) != 0) {
+                    send_event(serial, stage, "fail",
+                               "\"test\":\"testBuzzer\",\"executed\":false");
+                    printf("fail  {\"test\":\"testBuzzer\",\"executed\":false}\n");
+                    return;
+                }
+            }
+
             send_event(serial, stage, "testing", "\"awaiting_user_confirmation\":true");
             printf("testing  {\"test\":\"testBuzzer\",\"awaiting_user_confirmation\":true}\n");
             return;
@@ -466,9 +483,9 @@ static void handle_stage_command(const char *stage, const char *serial) {
     }
 
     int probed_for_this_stage = 0;
-    // simulate 的非感測器單項測試不需要先跑 getSensorIC。
-    // 實機模式保留原本流程，確保測試前已完成裝置探測。
-    const int needs_probe = !simulate_mode || stage_requires_sensor_probe(stage);
+    // 只有四個 Sensor 單項測試依賴探測結果。LED、Buzzer、Button 與 SPI
+    // 都可在讀取序號後直接執行，不應暗中插入 getSensorIC。
+    const int needs_probe = stage_requires_sensor_probe(stage);
     if (needs_probe &&
         (!sensor_probe_valid || strcmp(sensor_probe_serial, serial) != 0)) {
         memset(&last_sensor_probe, 0, sizeof(last_sensor_probe));
@@ -545,7 +562,7 @@ void process_command(const char *line) {
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "usage: %s [--port PORT|auto] [--list-ports] [--command-file PATH] "
-                    "[--api-base-url URL] [--debug] [--simulate]\n", prog);
+                    "[--lock-file PATH] [--api-base-url URL] [--debug] [--simulate]\n", prog);
     fprintf(stderr, "  --port   serial port (default: %s); auto requires exactly one candidate\n",
             UART_HVF_DEFAULT_PORT);
     fprintf(stderr, "  --list-ports  list detected serial ports and exit\n");
@@ -571,6 +588,8 @@ int main(int argc, char **argv) {
             list_ports = 1;
         } else if (strcmp(argv[i], "--command-file") == 0 && i + 1 < argc) {
             command_file = argv[++i];
+        } else if (strcmp(argv[i], "--lock-file") == 0 && i + 1 < argc) {
+            lock_file = argv[++i];
         } else if (strcmp(argv[i], "--api-base-url") == 0 && i + 1 < argc) {
             const char *base = argv[++i];
             snprintf(api_events_url, sizeof(api_events_url), "%s/api/sensor/events", base);
@@ -602,7 +621,7 @@ int main(int argc, char **argv) {
 
     srand((unsigned int)time(NULL));
 
-    if (platform_lock_acquire(&watcher_lock, WATCHER_LOCK_FILE) != 0) {
+    if (platform_lock_acquire(&watcher_lock, lock_file) != 0) {
         fprintf(stderr, "[ERROR] Another sensor_watcher is already running\n");
         return 1;
     }
