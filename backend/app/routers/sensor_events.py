@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import os
+import uuid
 
 router = APIRouter(prefix="/api/sensor", tags=["Sensor Events"])
 logger = logging.getLogger("uvicorn.error") or logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger("uvicorn.error") or logging.getLogger(__name__)
 latest_sensor_serials: Optional[Dict[str, str]] = None
 active_sensor_run_ids: Dict[str, int] = {}
 pending_read_started_at: Optional[datetime] = None
+stage_request_states: Dict[str, Dict[str, Any]] = {}
 
 SENSOR_RESULT_STAGES = [
     "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
@@ -123,14 +125,29 @@ async def run_sensor_stage(request: RunStageRequest):
     logger.info(f"[Sensor:/run-stage] {request.stage} for serial: {serial}")
 
     try:
+        request_id = str(uuid.uuid4())
+        stage_request_states[f"{serial}:{request.stage}"] = {
+            "request_id": request_id,
+            "status": "pending",
+        }
         with open(SHARED_FILE_PATH, "w") as f:
             f.write(f"STAGE {request.stage} {serial}\n{datetime.now().isoformat()}\n")
 
-        return {"status": "triggered", "serial": serial, "stage": request.stage}
+        return {"status": "triggered", "serial": serial, "stage": request.stage,
+                "request_id": request_id}
 
     except Exception as e:
         logger.exception(f"[Sensor:/run-stage] Failed to write stage command: {e}")
         raise HTTPException(status_code=500, detail="Failed to trigger stage")
+
+
+@router.get("/stage-result")
+async def get_sensor_stage_result(serial: str, stage: SensorStage, request_id: str):
+    """Polling fallback when the browser misses a WebSocket stage result."""
+    state = stage_request_states.get(f"{serial.strip()}:{stage}")
+    if not state or state.get("request_id") != request_id:
+        return {"status": "unknown"}
+    return state
 
 
 @router.post("/read-serial")
@@ -145,6 +162,7 @@ async def read_sensor_serial():
         global latest_sensor_serials, pending_read_started_at
         latest_sensor_serials = None
         pending_read_started_at = utc_now()
+        stage_request_states.clear()
         with open(SHARED_FILE_PATH, "w") as f:
             f.write(f"SEARCH\n{datetime.now().isoformat()}\n")
 
@@ -276,6 +294,11 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
 
     try:
         now = to_utc_naive(event.timestamp) if event.timestamp else utc_now()
+
+        request_state = stage_request_states.get(f"{serial}:{stage}")
+        if request_state and status in ("testing", "pass", "fail"):
+            request_state["status"] = status
+            request_state["detail"] = event.detail or {}
 
         saved_run = None
         if stage in SENSOR_RESULT_STAGES and status in ("pass", "fail"):

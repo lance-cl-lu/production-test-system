@@ -87,12 +87,32 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     if (ledOffStage) {
       try {
-        await testRecordsAPI.runSensorStage({ serial, stage: ledOffStage });
-        ledOffOk = true;
+        const triggerResponse = await testRecordsAPI.runSensorStage({
+          serial,
+          stage: ledOffStage,
+        });
+        const requestId = triggerResponse.data.request_id;
+        const deadline = Date.now() + 15000;
+
+        // shared command file 只能保留一筆命令；必須等 watcher 確認 LED Off
+        // 已執行，才可回報原測項結果並啟動下一個 stage。
+        while (requestId && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const resultResponse = await testRecordsAPI.getSensorStageResult({
+            serial,
+            stage: ledOffStage,
+            request_id: requestId,
+          });
+          const offStatus = resultResponse.data.status;
+          if (offStatus === 'pass' || offStatus === 'fail') {
+            ledOffOk = offStatus === 'pass';
+            break;
+          }
+        }
       } catch (error) {
         console.error('Failed to turn off LED:', error);
-        message.warning(t.sensorIQC.ledOffFailed);
       }
+      if (!ledOffOk) message.warning(t.sensorIQC.ledOffFailed);
     }
 
     await testRecordsAPI.reportSensorEvent({
@@ -105,6 +125,50 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       },
     });
   }, [t]);
+
+  // 人工確認測項必須同時支援 WebSocket 與 HTTP polling。兩個通道可能
+  // 收到同一事件，透過 prompt ref 確保每個測項只顯示一次 Modal。
+  const requestManualConfirmation = useCallback(({ serial, stage, status, detail }) => {
+    if (status !== 'testing' || !detail?.awaiting_user_confirmation) return;
+
+    if (stage === 'testBuzzer' && buzzerPromptRef.current !== serial) {
+      buzzerPromptRef.current = serial;
+      Modal.confirm({
+        title: t.sensorIQC.buzzerQuestion,
+        content: t.sensorIQC.buzzerPrompt,
+        okText: t.sensorIQC.yes,
+        cancelText: t.sensorIQC.no,
+        onOk: () => testRecordsAPI.reportSensorEvent({
+          serial,
+          stage: 'testBuzzer',
+          status: 'pass',
+          detail: { heard: true },
+        }),
+        onCancel: () => testRecordsAPI.reportSensorEvent({
+          serial,
+          stage: 'testBuzzer',
+          status: 'fail',
+          detail: { heard: false },
+        }),
+      });
+      return;
+    }
+
+    if (stage === 'testGreenLED' || stage === 'testOrangeLED') {
+      const promptKey = `${serial}:${stage}`;
+      if (ledPromptRef.current === promptKey) return;
+      ledPromptRef.current = promptKey;
+      const isBlue = stage === 'testGreenLED';
+      Modal.confirm({
+        title: isBlue ? t.sensorIQC.blueLedQuestion : t.sensorIQC.orangeLedQuestion,
+        content: isBlue ? t.sensorIQC.blueLedPrompt : t.sensorIQC.orangeLedPrompt,
+        okText: t.sensorIQC.yes,
+        cancelText: t.sensorIQC.no,
+        onOk: () => reportLedDecision({ serial, stage, seen: true }),
+        onCancel: () => reportLedDecision({ serial, stage, seen: false }),
+      });
+    }
+  }, [reportLedDecision, t]);
 
   const resetTest = () => {
     const emptyResults = {
@@ -175,47 +239,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
           if (stage === 'testComplete') {
             completionExpectedRef.current = detail?.expected_stages || [];
           }
-          if (stage === 'testBuzzer' && status === 'testing' &&
-              detail?.awaiting_user_confirmation &&
-              buzzerPromptRef.current !== serial) {
-            buzzerPromptRef.current = serial;
-            Modal.confirm({
-              title: t.sensorIQC.buzzerQuestion,
-              content: t.sensorIQC.buzzerPrompt,
-              okText: t.sensorIQC.yes,
-              cancelText: t.sensorIQC.no,
-              onOk: () => testRecordsAPI.reportSensorEvent({
-                serial,
-                stage: 'testBuzzer',
-                status: 'pass',
-                detail: { heard: true },
-              }),
-              onCancel: () => testRecordsAPI.reportSensorEvent({
-                serial,
-                stage: 'testBuzzer',
-                status: 'fail',
-                detail: { heard: false },
-              }),
-            });
-          }
-
-          if ((stage === 'testGreenLED' || stage === 'testOrangeLED') &&
-              status === 'testing' &&
-              detail?.awaiting_user_confirmation) {
-            const promptKey = `${serial}:${stage}`;
-            if (ledPromptRef.current !== promptKey) {
-              ledPromptRef.current = promptKey;
-              const isBlue = stage === 'testGreenLED';
-              Modal.confirm({
-                title: isBlue ? t.sensorIQC.blueLedQuestion : t.sensorIQC.orangeLedQuestion,
-                content: isBlue ? t.sensorIQC.blueLedPrompt : t.sensorIQC.orangeLedPrompt,
-                okText: t.sensorIQC.yes,
-                cancelText: t.sensorIQC.no,
-                onOk: () => reportLedDecision({ serial, stage, seen: true }),
-                onCancel: () => reportLedDecision({ serial, stage, seen: false }),
-              });
-            }
-          }
+          requestManualConfirmation({ serial, stage, status, detail });
 
           const newResults = stage === 'testComplete'
             ? testResultsRef.current
@@ -302,7 +326,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       clearTimeout(readTimeoutRef.current);
       clearTimeout(stageTimeoutRef.current);
     };
-  }, [t, reportLedDecision]);
+  }, [t, requestManualConfirmation]);
 
   const handleReadSerial = async () => {
     // 重新讀序號時，先把先前測試狀態全部清掉，避免沿用舊的 PASS/FAIL
@@ -410,8 +434,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       stageResolversRef.current[stageKey] = resolve;
     });
 
+    let requestId;
     try {
-      await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
+      const response = await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
+      requestId = response.data.request_id;
     } catch (error) {
       console.error(`Failed to run stage ${stageKey}:`, error);
       delete stageResolversRef.current[stageKey];
@@ -421,17 +447,79 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       return 'fail';
     }
 
-    const timeoutPromise = new Promise((resolve) => {
-      setTimeout(() => resolve('timeout'), STAGE_TIMEOUT_MS);
-    });
+    // WebSocket 是主要即時通道；若事件剛好在斷線/重連期間遺失，改由
+    // request_id 對應的 backend 狀態補回，避免硬體 PASS 被誤判為 timeout/fail。
+    let stageResolved = false;
+    let polledDetail = null;
+    const pollingPromise = (async () => {
+      if (!requestId) return 'timeout';
+      const deadline = Date.now() + STAGE_TIMEOUT_MS;
+      while (!stageResolved && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (stageResolved) return 'cancelled';
+        try {
+          const response = await testRecordsAPI.getSensorStageResult({
+            serial: sn,
+            stage: stageKey,
+            request_id: requestId,
+          });
+          const polledStatus = response.data.status;
+          if (polledStatus === 'testing') {
+            requestManualConfirmation({
+              serial: sn,
+              stage: stageKey,
+              status: polledStatus,
+              detail: response.data.detail,
+            });
+          }
+          if (polledStatus === 'pass' || polledStatus === 'fail') {
+            polledDetail = response.data.detail || null;
+            return polledStatus;
+          }
+        } catch (error) {
+          console.warn(`Failed to poll stage ${stageKey}:`, error);
+        }
+      }
+      return 'timeout';
+    })();
 
-    const result = await Promise.race([completionPromise, timeoutPromise]);
+    const result = await Promise.race([completionPromise, pollingPromise]);
+    stageResolved = true;
     if (result === 'timeout') {
       delete stageResolversRef.current[stageKey];
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
       setTestResults({ ...testResultsRef.current });
       setRunningStage(null);
       return 'fail';
+    }
+    // Polling may have recovered an event that WebSocket missed; mirror it into UI state.
+    if (testResultsRef.current[stageKey] !== result) {
+      testResultsRef.current = { ...testResultsRef.current, [stageKey]: result };
+      setTestResults({ ...testResultsRef.current });
+      if (polledDetail) {
+        const previousData = testDataRef.current;
+        let nextSensors = previousData.sensors;
+        if (stageKey === 'getSensorIC') {
+          nextSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
+            .filter(sensor => polledDetail[sensor] === true);
+        } else if (polledDetail.sensor && polledDetail.detected === true &&
+                   !previousData.sensors.includes(polledDetail.sensor)) {
+          nextSensors = [...previousData.sensors, polledDetail.sensor];
+        }
+        const nextData = {
+          ...previousData,
+          ...polledDetail,
+          sensors: nextSensors,
+          sensorMeasurements: {
+            ...previousData.sensorMeasurements,
+            [stageKey]: polledDetail,
+          },
+        };
+        testDataRef.current = nextData;
+        setTestData(nextData);
+      }
+      setRunningStage(null);
+      delete stageResolversRef.current[stageKey];
     }
     return result;
   };

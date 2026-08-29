@@ -316,21 +316,38 @@ void run_test_stage(const char *stage, const char *serial) {
     }
 
     if (strcmp(stage, "testOrangeLEDOff") == 0 || strcmp(stage, "testGreenLEDOff") == 0) {
+        int led_index = strcmp(stage, "testOrangeLEDOff") == 0 ? 1 : 2;
         if (simulate_mode) {
             printf("[LED] %s index=%d => simulated ok\n",
-                   stage,
-                   strcmp(stage, "testOrangeLEDOff") == 0 ? 1 : 2);
+                   stage, led_index);
+            snprintf(detail, sizeof(detail),
+                     "\"led_index\":%d,\"executed\":true", led_index);
+            send_event(serial, stage, "pass", detail);
             return;
         }
         if (!uart_available) {
             printf("[LED] %s => skipped (UART unavailable)\n", stage);
+            snprintf(detail, sizeof(detail),
+                     "\"led_index\":%d,\"executed\":false", led_index);
+            send_event(serial, stage, "fail", detail);
             return;
         }
 
-        int led_index = strcmp(stage, "testOrangeLEDOff") == 0 ? 1 : 2;
-        int result = uart_hvf_set_led(uart_fd, led_index, 0);
+        int result = -1;
+        for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
+            result = uart_hvf_set_led(uart_fd, led_index, 0);
+            if (result != 0 && attempt < 3) {
+                printf("[LED] %s index=%d => retry %d/3\n",
+                       stage, led_index, attempt + 1);
+                platform_sleep_ms(150);
+            }
+        }
         printf("[LED] %s index=%d => %s\n",
                stage, led_index, result == 0 ? "ok" : "fail");
+        snprintf(detail, sizeof(detail),
+                 "\"led_index\":%d,\"executed\":%s",
+                 led_index, result == 0 ? "true" : "false");
+        send_event(serial, stage, result == 0 ? "pass" : "fail", detail);
         return;
     }
 
@@ -500,6 +517,13 @@ static void handle_stage_command(const char *stage, const char *serial) {
         send_event(serial, stage, "fail", detail);
     } else {
         run_test_stage(stage, serial);
+    }
+
+    // LED Off 是原 LED 人工判定流程中的控制命令，不是獨立測項。
+    // run_test_stage 已回傳 pass/fail acknowledgement，無須再送 testComplete。
+    if (strcmp(stage, "testGreenLEDOff") == 0 ||
+        strcmp(stage, "testOrangeLEDOff") == 0) {
+        return;
     }
 
     char expected[192];
