@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, Dict, Any, Literal, List
@@ -461,6 +461,44 @@ def get_sensor_test_runs(
     if end_date:
         query = query.filter(SensorTestRun.started_at <= to_utc_naive(end_date))
     return query.order_by(SensorTestRun.started_at.desc()).offset(skip).limit(limit).all()
+
+
+@router.get("/test-runs/duplicate-check")
+def check_sensor_serial_history(
+    serial_wle: str,
+    serial_wba: Optional[str] = None,
+    current_run_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Check older sessions while excluding the session created by the latest serial read."""
+    wle = (serial_wle or "").strip()
+    wba = (serial_wba or "").strip()
+    if not wle:
+        raise HTTPException(status_code=400, detail="serial_wle is required")
+
+    serial_conditions = [SensorTestRun.serial_wle == wle]
+    if wba:
+        serial_conditions.append(SensorTestRun.serial_wba == wba)
+
+    query = db.query(SensorTestRun).filter(
+        SensorTestRun.run_mode == "session",
+        or_(*serial_conditions),
+    )
+    excluded_run_id = current_run_id or active_sensor_run_ids.get(wle)
+    if excluded_run_id:
+        query = query.filter(SensorTestRun.id != excluded_run_id)
+
+    count = query.count()
+    latest = query.order_by(SensorTestRun.started_at.desc()).first()
+    return {
+        "exists": count > 0,
+        "count": count,
+        "latest": ({
+            "run_id": latest.id,
+            "test_result": latest.test_result,
+            "started_at": utc_iso(latest.started_at),
+        } if latest else None),
+    }
 
 
 @router.get("/test-runs/export.csv")

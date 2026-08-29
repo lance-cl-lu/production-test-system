@@ -28,6 +28,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   
   const [serialWle, setSerialWle] = useState('');
   const [serialWba, setSerialWba] = useState('');
+  const [currentRunId, setCurrentRunId] = useState(null);
   const [testing, setTesting] = useState(false);
   const [runningStage, setRunningStage] = useState(null);
   const [readingSerial, setReadingSerial] = useState(false);
@@ -238,6 +239,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         clearTimeout(readTimeoutRef.current);
         setSerialWle(payload.data.serial_wle);
         setSerialWba(payload.data.serial_wba || '');
+        setCurrentRunId(payload.data.run_id || null);
         setReadingSerial(false);
         message.success({
           content: `WLE: ${payload.data.serial_wle}`,
@@ -363,6 +365,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     setSerialWle('');
     setSerialWba('');
+    setCurrentRunId(null);
     setReadingSerial(true);
     clearInterval(serialPollRef.current);
     // duration 0 讓提示一直顯示，直到相同 key 的訊息把它換掉
@@ -395,12 +398,17 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     serialPollRef.current = setInterval(async () => {
       try {
         const response = await testRecordsAPI.getLatestSensorSerial();
-        const { serial_wle: latestWle, serial_wba: latestWba } = response.data;
+        const {
+          serial_wle: latestWle,
+          serial_wba: latestWba,
+          run_id: latestRunId,
+        } = response.data;
         if (latestWle) {
           clearInterval(serialPollRef.current);
           clearTimeout(readTimeoutRef.current);
           setSerialWle(latestWle);
           setSerialWba(latestWba || '');
+          setCurrentRunId(latestRunId || null);
           setReadingSerial(false);
           message.success({
             content: `WLE: ${latestWle}`,
@@ -556,8 +564,40 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     const sn = serialWle.trim();
     if (!sn) return;
 
-    resetTest();
     setTesting(true);
+    let history;
+    try {
+      const response = await testRecordsAPI.checkSensorSerialHistory({
+        serial_wle: sn,
+        serial_wba: serialWba.trim() || undefined,
+        current_run_id: currentRunId || undefined,
+      });
+      history = response.data;
+    } catch (error) {
+      console.error('Failed to check serial history:', error);
+      message.error(t.sensorIQC.duplicateCheckFailed);
+      setTesting(false);
+      return;
+    }
+
+    if (history.exists) {
+      const shouldContinue = await new Promise(resolve => {
+        Modal.confirm({
+          title: t.sensorIQC.duplicateSerialTitle,
+          content: `${t.sensorIQC.duplicateSerialPrompt} (${t.sensorIQC.previousTestCount}: ${history.count})`,
+          okText: t.sensorIQC.continueTest,
+          cancelText: t.sensorIQC.cancel,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!shouldContinue) {
+        setTesting(false);
+        return;
+      }
+    }
+
+    resetTest();
     message.info(t.sensorIQC.testStarted);
 
     // 1. 先探測 Sensor IC

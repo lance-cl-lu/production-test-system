@@ -45,6 +45,7 @@ export const testRecordsAPI = {
   getSensorStageResult: (params) => api.get('/api/sensor/stage-result', { params }),
   reportSensorEvent: (data) => api.post('/api/sensor/events', data),
   getSensorTestRuns: (params) => api.get('/api/sensor/test-runs', { params }),
+  checkSensorSerialHistory: (params) => api.get('/api/sensor/test-runs/duplicate-check', { params }),
   exportSensorTestRuns: (params) => api.get('/api/sensor/test-runs/export.csv', {
     params, responseType: 'blob', timeout: 60000,
   }),
