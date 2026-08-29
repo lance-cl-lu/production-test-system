@@ -36,6 +36,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const stageTimeoutRef = useRef(null);
   const stageTimeoutStageRef = useRef(null);
   const serialWleRef = useRef('');
+  const buttonPromptRef = useRef(null);
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
   const stageResolversRef = useRef({});
@@ -129,6 +130,23 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   // 人工確認測項必須同時支援 WebSocket 與 HTTP polling。兩個通道可能
   // 收到同一事件，透過 prompt ref 確保每個測項只顯示一次 Modal。
   const requestManualConfirmation = useCallback(({ serial, stage, status, detail }) => {
+    if (stage === 'testButton') {
+      if (status === 'testing' && !buttonPromptRef.current) {
+        buttonPromptRef.current = Modal.info({
+          title: t.sensorIQC.buttonPromptTitle,
+          content: t.sensorIQC.buttonPrompt,
+          footer: null,
+          closable: false,
+          keyboard: false,
+          maskClosable: false,
+        });
+      } else if ((status === 'pass' || status === 'fail') && buttonPromptRef.current) {
+        buttonPromptRef.current.destroy();
+        buttonPromptRef.current = null;
+      }
+      return;
+    }
+
     if (status !== 'testing' || !detail?.awaiting_user_confirmation) return;
 
     if (stage === 'testBuzzer' && buzzerPromptRef.current !== serial) {
@@ -171,6 +189,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   }, [reportLedDecision, t]);
 
   const resetTest = () => {
+    if (buttonPromptRef.current) {
+      buttonPromptRef.current.destroy();
+      buttonPromptRef.current = null;
+    }
     const emptyResults = {
       getSensorIC: null,
       sht41: null,
@@ -322,6 +344,10 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     // 組件卸載時關閉 WebSocket
     return () => {
       ws.close();
+      if (buttonPromptRef.current) {
+        buttonPromptRef.current.destroy();
+        buttonPromptRef.current = null;
+      }
       clearInterval(serialPollRef.current);
       clearTimeout(readTimeoutRef.current);
       clearTimeout(stageTimeoutRef.current);
@@ -404,6 +430,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     stageTimeoutRef.current = setTimeout(() => {
       setRunningStage(current => {
         if (current !== stageKey) return current;
+        requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
         testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
         setTestResults(testResultsRef.current);
         message.error(t.sensorIQC.stageFailed);
@@ -416,6 +443,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
     } catch (error) {
       console.error('Failed to run stage:', error);
+      requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
       message.error(t.sensorIQC.stageFailed);
       clearTimeout(stageTimeoutRef.current);
       stageTimeoutStageRef.current = null;
@@ -440,6 +468,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       requestId = response.data.request_id;
     } catch (error) {
       console.error(`Failed to run stage ${stageKey}:`, error);
+      requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
       delete stageResolversRef.current[stageKey];
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
       setTestResults({ ...testResultsRef.current });
@@ -464,14 +493,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             request_id: requestId,
           });
           const polledStatus = response.data.status;
-          if (polledStatus === 'testing') {
-            requestManualConfirmation({
-              serial: sn,
-              stage: stageKey,
-              status: polledStatus,
-              detail: response.data.detail,
-            });
-          }
+          requestManualConfirmation({
+            serial: sn,
+            stage: stageKey,
+            status: polledStatus,
+            detail: response.data.detail,
+          });
           if (polledStatus === 'pass' || polledStatus === 'fail') {
             polledDetail = response.data.detail || null;
             return polledStatus;
@@ -486,6 +513,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     const result = await Promise.race([completionPromise, pollingPromise]);
     stageResolved = true;
     if (result === 'timeout') {
+      requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
       delete stageResolversRef.current[stageKey];
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
       setTestResults({ ...testResultsRef.current });

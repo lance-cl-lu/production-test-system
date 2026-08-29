@@ -42,6 +42,7 @@ export const testRecordsAPI = {
   readSensorSerial: () => api.post('/api/sensor/read-serial'),
   getLatestSensorSerial: () => api.get('/api/sensor/serial-found/latest'),
   runSensorStage: (data) => api.post('/api/sensor/run-stage', data),
+  getSensorStageResult: (params) => api.get('/api/sensor/stage-result', { params }),
   reportSensorEvent: (data) => api.post('/api/sensor/events', data),
   getSensorTestRuns: (params) => api.get('/api/sensor/test-runs', { params }),
   exportSensorTestRuns: (params) => api.get('/api/sensor/test-runs/export.csv', {
