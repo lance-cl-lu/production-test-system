@@ -51,6 +51,7 @@ export const testRecordsAPI = {
   }),
   getSensorTestRunStats: () => api.get('/api/sensor/test-runs/stats'),
   deleteSensorTestRun: (id) => api.delete(`/api/sensor/test-runs/${id}`),
+  getCloudStatus: () => api.get('/api/cloud/status'),
 };
 
 // Health Check

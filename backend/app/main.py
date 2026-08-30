@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import init_db
 from app.routers import test_records, websocket
-from app.routers import pcba_events, sensor_events
+from app.routers import cloud_status, pcba_events, sensor_events
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -43,6 +43,7 @@ app.include_router(test_records.router)
 app.include_router(websocket.router)
 app.include_router(pcba_events.router)
 app.include_router(sensor_events.router)
+app.include_router(cloud_status.router)
 
 
 @app.get("/")

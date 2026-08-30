@@ -1,11 +1,12 @@
-import React, { useState, useCallback } from 'react';
-import { Layout, Menu, Typography, Badge, Space, Dropdown } from 'antd';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Layout, Menu, Typography, Badge, Space, Dropdown, Tooltip } from 'antd';
 import {
   DashboardOutlined,
   UnorderedListOutlined,
   WifiOutlined,
   RadarChartOutlined,
   GlobalOutlined,
+  CloudOutlined,
 } from '@ant-design/icons';
 import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
@@ -15,6 +16,7 @@ import ProgramMacUID from './components/ProgramMacUID';
 import FinalTest from './components/FinalTest';
 import { useWebSocket } from './services/websocket';
 import { translations } from './i18n/locales';
+import { testRecordsAPI } from './services/api';
 import './App.css';
 
 const { Header, Content, Sider } = Layout;
@@ -23,6 +25,7 @@ const { Title } = Typography;
 function App() {
   const [currentMenu, setCurrentMenu] = useState('dashboard');
   const [newRecordTrigger, setNewRecordTrigger] = useState(0);
+  const [cloudStatus, setCloudStatus] = useState({ status: 'checking' });
   const [language, setLanguage] = useState(() => {
     const saved = localStorage.getItem('smac-language');
     if (saved && translations[saved]) return saved;
@@ -39,6 +42,24 @@ function App() {
   }, []);
 
   const { isConnected } = useWebSocket(handleWebSocketMessage);
+
+  useEffect(() => {
+    let active = true;
+    const loadCloudStatus = async () => {
+      try {
+        const response = await testRecordsAPI.getCloudStatus();
+        if (active) setCloudStatus(response.data);
+      } catch (error) {
+        if (active) setCloudStatus({ status: 'error', error: error.message });
+      }
+    };
+    loadCloudStatus();
+    const interval = setInterval(loadCloudStatus, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const t = translations[language];
 
@@ -67,6 +88,16 @@ function App() {
     setLanguage(nextLanguage);
     localStorage.setItem('smac-language', nextLanguage);
   };
+
+  const cloudVisuals = {
+    healthy: { badge: 'success', color: '#52c41a', label: t.cloudHealthy },
+    pending: { badge: 'processing', color: '#1677ff', label: t.cloudPending },
+    error: { badge: 'error', color: '#ff4d4f', label: t.cloudError },
+    disabled: { badge: 'default', color: '#8c8c8c', label: t.cloudDisabled },
+    checking: { badge: 'processing', color: '#1677ff', label: t.cloudChecking },
+  };
+  const cloudVisual = cloudVisuals[cloudStatus.status] || cloudVisuals.error;
+  const cloudTooltip = `${t.cloudPendingCount}: ${cloudStatus.pending || 0}; ${t.cloudFailedCount}: ${cloudStatus.failed || 0}`;
 
   const menuItems = [
     {
@@ -114,11 +145,23 @@ function App() {
         <Space size="large">
           <Space>
             <Badge status={isConnected ? 'success' : 'error'} />
-            <WifiOutlined style={{ color: 'white', fontSize: 16 }} />
+            <WifiOutlined style={{
+              color: isConnected ? '#52c41a' : '#ff4d4f',
+              fontSize: 16,
+            }} />
             <span style={{ color: 'white' }}>
-              {isConnected ? t.connected : t.disconnected}
+              {t.localService}: {isConnected ? t.connected : t.disconnected}
             </span>
           </Space>
+          <Tooltip title={cloudTooltip}>
+            <Space>
+              <Badge status={cloudVisual.badge} />
+              <CloudOutlined style={{ color: cloudVisual.color, fontSize: 16 }} />
+              <span style={{ color: 'white' }}>
+                {t.cloudSync}: {cloudVisual.label}
+              </span>
+            </Space>
+          </Tooltip>
           <Dropdown
             menu={{
               items: languageMenuItems,
