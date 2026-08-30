@@ -103,7 +103,9 @@ const ProgramMacUID = ({ language = 'zh-TW' }) => {
                   <Text code>{programmedUID}</Text>
                 </Text>
                 <Text type="secondary">
-                  {t.programMacUID.programmedTime}: {new Date().toLocaleString(language === 'zh-TW' ? 'zh-TW' : 'en-US')}
+                  {t.programMacUID.programmedTime}: {new Date().toLocaleString(
+                    language === 'zh-TW' ? 'zh-TW' : language === 'vi' ? 'vi-VN' : 'en-US'
+                  )}
                 </Text>
               </Space>
             }

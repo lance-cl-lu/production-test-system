@@ -507,7 +507,7 @@ def export_sensor_test_runs_csv(
     test_result: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    language: Literal["zh-TW", "en-US"] = "zh-TW",
+    language: Literal["zh-TW", "en-US", "vi"] = "zh-TW",
     db: Session = Depends(get_db),
 ):
     """Export every Sensor session matching the current UI filters."""
@@ -529,14 +529,22 @@ def export_sensor_test_runs_csv(
                   "按鈕", "藍色 LED", "橙色 LED", "蜂鳴器", "SPI"],
         "en-US": ["Sensor IC", "sht41", "ens210", "lps22df", "bme690",
                   "Button", "Blue LED", "Orange LED", "Buzzer", "SPI"],
+        "vi": ["IC cảm biến", "sht41", "ens210", "lps22df", "bme690",
+               "Nút nhấn", "LED xanh dương", "LED cam", "Còi", "SPI"],
     }[language]
-    base_headers = (["WLE 序號", "WBA 序號", "測試結果", "測試時間（台北）"]
-                    if language == "zh-TW" else
-                    ["WLE Serial", "WBA Serial", "Test Result", "Test Time (Taipei)"])
-    metric_names = (["溫度 (°C)", "濕度 (%)", "壓力 (hPa)", "氣體電阻 (Ω)"]
-                    if language == "zh-TW" else
-                    ["Temperature (°C)", "Humidity (%)", "Pressure (hPa)",
-                     "Gas Resistance (Ω)"])
+    base_headers = {
+        "zh-TW": ["WLE 序號", "WBA 序號", "測試結果", "測試時間（台北）"],
+        "en-US": ["WLE Serial", "WBA Serial", "Test Result", "Test Time (Taipei)"],
+        "vi": ["Số sê-ri WLE", "Số sê-ri WBA", "Kết quả kiểm tra",
+               "Thời gian kiểm tra (Đài Bắc)"],
+    }[language]
+    metric_names = {
+        "zh-TW": ["溫度 (°C)", "濕度 (%)", "壓力 (hPa)", "氣體電阻 (Ω)"],
+        "en-US": ["Temperature (°C)", "Humidity (%)", "Pressure (hPa)",
+                  "Gas Resistance (Ω)"],
+        "vi": ["Nhiệt độ (°C)", "Độ ẩm (%)", "Áp suất (hPa)",
+               "Điện trở khí (Ω)"],
+    }[language]
     sensor_stages = ["sht41", "ens210", "lps22df", "bme690"]
     headers = base_headers + stage_labels + [
         f"{sensor} {metric}" for sensor in sensor_stages for metric in metric_names

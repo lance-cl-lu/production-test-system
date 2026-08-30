@@ -23,7 +23,11 @@ const { Title } = Typography;
 function App() {
   const [currentMenu, setCurrentMenu] = useState('dashboard');
   const [newRecordTrigger, setNewRecordTrigger] = useState(0);
-  const [language, setLanguage] = useState('zh-TW');
+  const [language, setLanguage] = useState(() => {
+    const saved = localStorage.getItem('smac-language');
+    if (saved && translations[saved]) return saved;
+    return (navigator.language || '').startsWith('vi') ? 'vi' : 'zh-TW';
+  });
 
   const handleWebSocketMessage = useCallback((message) => {
     console.log('Received WebSocket message:', message);
@@ -47,7 +51,22 @@ function App() {
       key: 'en',
       label: 'English',
     },
+    {
+      key: 'vi',
+      label: 'Tiếng Việt',
+    },
   ];
+
+  const languageLabels = {
+    'zh-TW': '繁體中文',
+    en: 'English',
+    vi: 'Tiếng Việt',
+  };
+
+  const changeLanguage = (nextLanguage) => {
+    setLanguage(nextLanguage);
+    localStorage.setItem('smac-language', nextLanguage);
+  };
 
   const menuItems = [
     {
@@ -103,14 +122,14 @@ function App() {
           <Dropdown
             menu={{
               items: languageMenuItems,
-              onClick: ({ key }) => setLanguage(key),
+              onClick: ({ key }) => changeLanguage(key),
               selectedKeys: [language],
             }}
             trigger={['click']}
           >
             <Space style={{ cursor: 'pointer' }}>
               <GlobalOutlined style={{ color: 'white', fontSize: 18 }} />
-              <span style={{ color: 'white' }}>{language === 'zh-TW' ? '繁體中文' : 'English'}</span>
+              <span style={{ color: 'white' }}>{languageLabels[language]}</span>
             </Space>
           </Dropdown>
         </Space>

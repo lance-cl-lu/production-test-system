@@ -5,14 +5,20 @@ import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
 
 const { RangePicker } = DatePicker;
-const resultTag = (result) => {
+const resultTag = (result, t) => {
   const normalized = String(result || '').toLowerCase();
   const color = normalized === 'pass' ? 'green' : normalized === 'fail' ? 'red' : 'default';
-  return <Tag color={color}>{normalized ? normalized.toUpperCase() : '-'}</Tag>;
+  const labels = {
+    pass: t?.sensorIQC?.passed || 'PASS',
+    fail: t?.sensorIQC?.failed || 'FAIL',
+    pending: t?.pendingTests || 'PENDING',
+  };
+  return <Tag color={color}>{normalized ? labels[normalized] || normalized.toUpperCase() : '-'}</Tag>;
 };
 const numberValue = (value, digits = 2) =>
   value === null || value === undefined ? '-' : Number(value).toFixed(digits);
-const taipeiDateTime = (value) => value ? new Intl.DateTimeFormat('zh-TW', {
+const taipeiDateTime = (value, language = 'zh-TW') => value ? new Intl.DateTimeFormat(
+  language === 'vi' ? 'vi-VN' : language === 'en' ? 'en-US' : 'zh-TW', {
   timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 }).format(new Date(value)).replaceAll('/', '-') : '-';
@@ -123,7 +129,8 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
   const sensorDetailColumns = [
     { title: t.stage, dataIndex: 'stage', width: 140,
       render: (stage) => t.sensorIQC?.[stage] || stage },
-    { title: t.testResult, dataIndex: 'status', width: 100, render: resultTag },
+    { title: t.testResult, dataIndex: 'status', width: 100,
+      render: (value) => resultTag(value, t) },
     { title: t.temperature, dataIndex: 'temperature_c',
       render: (value) => numberValue(value) },
     { title: t.humidity, dataIndex: 'humidity_percent',
@@ -144,15 +151,15 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
     { title: t.serialWba, dataIndex: 'serial_wba', fixed: 'left', width: 180,
       render: (value) => value || '-' },
     { title: t.testResult, dataIndex: 'test_result', fixed: 'left', width: 110,
-      align: 'center', render: resultTag },
+      align: 'center', render: (value) => resultTag(value, t) },
     { title: t.testTime, dataIndex: 'started_at', width: 170,
-      render: taipeiDateTime },
+      render: (value) => taipeiDateTime(value, language) },
     ...sensorStages.map((stage) => ({
       title: t.sensorIQC?.[stage] || stage,
       key: stage,
       width: 135,
       align: 'center',
-      render: (_, record) => resultTag(stageResult(record, stage)),
+      render: (_, record) => resultTag(stageResult(record, stage), t),
     })),
     {
       title: t.delete,
