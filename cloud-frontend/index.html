@@ -2,15 +2,17 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#172554">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>Production Test Cloud</title>
   <style>
-    body{font:14px system-ui;margin:0;background:#f5f7fa;color:#1f2937}header{background:#172554;color:white;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;font-size:20px}.language{display:flex;gap:6px}.language button{margin:0;padding:6px 10px;color:white;border:1px solid #93c5fd;background:transparent;border-radius:4px;cursor:pointer}.language button.active{color:#172554;background:white}
+    body{font:14px system-ui;margin:0;background:#f5f7fa;color:#1f2937}header{background:#172554;color:white;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;font-size:20px}.brand{display:flex;align-items:center;gap:10px}.brand img{width:30px;height:30px}.language{display:flex;gap:6px}.language button{margin:0;padding:6px 10px;color:white;border:1px solid #93c5fd;background:transparent;border-radius:4px;cursor:pointer}.language button.active{color:#172554;background:white}
     main{padding:24px}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.card{background:white;border-radius:8px;padding:18px;box-shadow:0 1px 4px #0001}.value{font-size:28px;font-weight:700;margin-top:8px}
     .table-wrap{overflow:auto;margin-top:20px;background:white;border-radius:8px}table{border-collapse:collapse;min-width:1900px;width:100%}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:center;white-space:nowrap}th{background:#f8fafc;position:sticky;top:0}.pass{color:#15803d}.fail{color:#b91c1c}.pending{color:#a16207}
     button{padding:8px 14px;margin-bottom:12px}.expand{width:28px;height:28px;padding:0;margin:0;border:1px solid #94a3b8;border-radius:4px;background:white;cursor:pointer}.detail-row{display:none}.detail-row.open{display:table-row}.detail-cell{padding:14px 48px;background:#f8fafc}.detail-table{min-width:800px}.detail-table th{position:static;background:#e2e8f0}@media(max-width:800px){.stats{grid-template-columns:1fr 1fr}}
   </style>
 </head>
-<body><header><span id="title"></span><div class="language"><button id="lang-zh" onclick="setLanguage('zh-TW')">中文</button><button id="lang-en" onclick="setLanguage('en-US')">English</button></div></header><main>
+<body><header><div class="brand"><img src="/favicon.svg" alt=""><span id="title"></span></div><div class="language"><button id="lang-zh" onclick="setLanguage('zh-TW')">中文</button><button id="lang-en" onclick="setLanguage('en-US')">English</button></div></header><main>
   <button id="refresh" onclick="loadAll()"></button><div class="stats" id="stats"></div>
   <div class="table-wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
 </main><script src="/config.js"></script><script>
