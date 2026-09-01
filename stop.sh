@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# 優先使用 Docker Compose v2 (docker compose)，找不到才退回 v1 (docker-compose)
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+else
+    echo "❌ 找不到 Docker Compose，請先安裝 Docker Desktop。"
+    exit 1
+fi
+
 # 默認開發模式
 COMPOSE_FILE="docker-compose.yml"
 
@@ -15,12 +25,12 @@ echo ""
 
 # 停止所有 Docker 容器
 echo "停止所有容器..."
-docker-compose -f "$COMPOSE_FILE" down
+"${COMPOSE[@]}" -f "$COMPOSE_FILE" down
 
 echo ""
 echo "✅ 系統已停止"
 echo ""
 echo "💡 提示:"
-echo "   - 完全清除容器與資料卷: docker-compose -f $COMPOSE_FILE down -v"
+echo "   - 完全清除容器與資料卷: ${COMPOSE[*]} -f $COMPOSE_FILE down -v"
 echo "   - 重新啟動: ./start.sh"
 echo ""
