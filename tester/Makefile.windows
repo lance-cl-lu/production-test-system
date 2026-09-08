@@ -1,7 +1,11 @@
-# Build from an MSYS2 MinGW64 shell on Windows.
-# Install toolchain: pacman -S --needed mingw-w64-x86_64-gcc make
+# Windows/MSYS2: pacman -S --needed mingw-w64-x86_64-gcc make
+# macOS cross-build: brew install mingw-w64
 
-CC ?= gcc
+ifeq ($(OS),Windows_NT)
+CC = gcc
+else
+CC = x86_64-w64-mingw32-gcc
+endif
 CFLAGS := -O2 -Wall -Wextra -D_WIN32_WINNT=0x0601
 LDFLAGS := -lwinhttp
 
