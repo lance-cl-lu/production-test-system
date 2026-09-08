@@ -316,6 +316,7 @@ async def receive_sensor_event(event: SensorEvent, db: Session = Depends(get_db)
                 "status": status,
                 "detail": event.detail,
                 "progress": event.progress,
+                "request_id": request_state.get("request_id") if request_state else None,
             },
             "timestamp": datetime.now().isoformat(),
         }

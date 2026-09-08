@@ -15,7 +15,9 @@ const { Title, Text } = Typography;
 // 讀取序號的提示訊息共用同一個 key，後續訊息會就地取代它而非另開一則
 const READ_SERIAL_MSG_KEY = 'sensor-read-serial';
 const READ_SERIAL_TIMEOUT_MS = 30000;
-const STAGE_TIMEOUT_MS = 30000;
+// Passthrough command retries (especially the 3-second buzzer command) can
+// legitimately take longer than 30 seconds on a slow or recovering UART.
+const STAGE_TIMEOUT_MS = 60000;
 
 const getLedOffStage = (stage) => {
   if (stage === 'testGreenLED') return 'testGreenLEDOff';
@@ -41,6 +43,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const buzzerPromptRef = useRef(null);
   const ledPromptRef = useRef(null);
   const stageResolversRef = useRef({});
+  const stageRequestIdsRef = useRef({});
   const testResultsRef = useRef({});
   const testDataRef = useRef({ sensors: [], sensorMeasurements: {} });
   const completionExpectedRef = useRef([]);
@@ -215,6 +218,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     };
     testResultsRef.current = emptyResults;
     testDataRef.current = emptyData;
+    stageRequestIdsRef.current = {};
     completionExpectedRef.current = [];
     completionShownRef.current = false;
     setTestResults(emptyResults);
@@ -256,11 +260,18 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
       // 只處理 sensor_event 類型的事件
       if (payload.type === 'sensor_event') {
-        const { serial, stage, status, detail } = payload.data;
+        const { serial, stage, status, detail, request_id: requestId } = payload.data;
 
         // 只更新當前測試的 SN
         if (serial === serialWleRef.current) {
-          if (stage === 'testComplete') {
+          // 同一序號重測時可能收到上一輪延遲事件；只接受目前 request_id。
+          if (stage !== 'testComplete' && requestId &&
+              requestId !== stageRequestIdsRef.current[stage]) {
+            return;
+          }
+          // 單項測試也會送 testComplete；只有 full completion 才能作為整套測試的
+          // 完成清單，避免較晚抵達的 single event 覆蓋整體判定。
+          if (stage === 'testComplete' && detail?.run_mode === 'full') {
             completionExpectedRef.current = detail?.expected_stages || [];
           }
           requestManualConfirmation({ serial, stage, status, detail });
@@ -291,6 +302,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
               stageResolversRef.current[stage](status);
               delete stageResolversRef.current[stage];
             }
+            delete stageRequestIdsRef.current[stage];
           }
 
           if (detail) {
@@ -443,12 +455,14 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         setTestResults(testResultsRef.current);
         message.error(t.sensorIQC.stageFailed);
         stageTimeoutStageRef.current = null;
+        delete stageRequestIdsRef.current[stageKey];
         return null;
       });
     }, STAGE_TIMEOUT_MS);
 
     try {
-      await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
+      const response = await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
+      stageRequestIdsRef.current[stageKey] = response.data.request_id;
     } catch (error) {
       console.error('Failed to run stage:', error);
       requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
@@ -456,6 +470,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       clearTimeout(stageTimeoutRef.current);
       stageTimeoutStageRef.current = null;
       setRunningStage(null);
+      delete stageRequestIdsRef.current[stageKey];
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: null };
       setTestResults(testResultsRef.current);
     }
@@ -474,10 +489,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     try {
       const response = await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
       requestId = response.data.request_id;
+      stageRequestIdsRef.current[stageKey] = requestId;
     } catch (error) {
       console.error(`Failed to run stage ${stageKey}:`, error);
       requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
       delete stageResolversRef.current[stageKey];
+      delete stageRequestIdsRef.current[stageKey];
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
       setTestResults({ ...testResultsRef.current });
       setRunningStage(null);
@@ -523,6 +540,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     if (result === 'timeout') {
       requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
       delete stageResolversRef.current[stageKey];
+      delete stageRequestIdsRef.current[stageKey];
       testResultsRef.current = { ...testResultsRef.current, [stageKey]: 'fail' };
       setTestResults({ ...testResultsRef.current });
       setRunningStage(null);
@@ -556,6 +574,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       }
       setRunningStage(null);
       delete stageResolversRef.current[stageKey];
+      delete stageRequestIdsRef.current[stageKey];
     }
     return result;
   };
@@ -643,6 +662,9 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     await executeStage('testSPI', sn);
 
     // 8. 回報 testComplete 讓後端與資料庫結算整體結果
+    // HTTP 回應可能早於 WebSocket 的 testComplete 廣播；先同步保存清單，避免
+    // UI 在 setTesting(false) 後因 completionExpectedRef 尚空而誤顯示 FAIL。
+    completionExpectedRef.current = expectedStages;
     try {
       await testRecordsAPI.reportSensorEvent({
         serial: sn,
@@ -723,15 +745,42 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const visibleTestItems = testItems.filter(item =>
     !probeFinished || !sensorKeys.includes(item.key) || testData.sensors.includes(item.key)
   );
+  const passedCount = visibleTestItems.filter(item => testResults[item.key] === 'pass').length;
+  const failedCount = visibleTestItems.filter(item => testResults[item.key] === 'fail').length;
+  const allVisibleTestsPassed = visibleTestItems.length > 0 &&
+    visibleTestItems.every(item => testResults[item.key] === 'pass');
 
   return (
     <div>
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <div>
-            <Title level={2}>{t.sensorIQC.title}</Title>
-            <Text type="secondary">{t.sensorIQC.description}</Text>
-          </div>
+          <Row justify="space-between" align="top" gutter={[24, 16]}>
+            <Col xs={24} md={14}>
+              <Title level={2}>{t.sensorIQC.title}</Title>
+              <Text type="secondary">{t.sensorIQC.description}</Text>
+            </Col>
+            {Object.values(testResults).some(r => r !== null) && !testing && (
+              <Col xs={24} md={10} style={{ textAlign: 'right' }}>
+                <Space direction="vertical" size={2} align="end">
+                  <Title level={4} style={{ margin: 0 }}>{t.sensorIQC.summary}</Title>
+                  <Text>
+                    {t.sensorIQC.passed}: {passedCount} / {visibleTestItems.length}
+                  </Text>
+                  <Text>
+                    {t.sensorIQC.failed}: {failedCount} / {visibleTestItems.length}
+                  </Text>
+                  <Text strong>
+                    {t.sensorIQC.finalResult}: {' '}
+                    {allVisibleTestsPassed ? (
+                      <Tag icon={<CheckCircleOutlined />} color="success">{t.sensorIQC.pass}</Tag>
+                    ) : (
+                      <Tag icon={<CloseCircleOutlined />} color="error">{t.sensorIQC.fail}</Tag>
+                    )}
+                  </Text>
+                </Space>
+              </Col>
+            )}
+          </Row>
 
           <Row gutter={8} align="middle" wrap={false}>
             <Col flex="1 1 0">
@@ -819,27 +868,6 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         </Row>
       </Card>
 
-      {Object.values(testResults).some(r => r !== null) && !testing && (
-        <Card style={{ marginTop: 24 }}>
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Title level={4}>{t.sensorIQC.summary}</Title>
-            <Text>
-              {t.sensorIQC.passed}: {visibleTestItems.filter(item => testResults[item.key] === 'pass').length} / {visibleTestItems.length}
-            </Text>
-            <Text>
-              {t.sensorIQC.failed}: {visibleTestItems.filter(item => testResults[item.key] === 'fail').length} / {visibleTestItems.length}
-            </Text>
-            <Text strong>
-              {t.sensorIQC.finalResult}: {' '}
-              {completionExpectedRef.current.length > 0 && completionExpectedRef.current.every(key => testResults[key] === 'pass') ? (
-                <Tag icon={<CheckCircleOutlined />} color="success">{t.sensorIQC.pass}</Tag>
-              ) : (
-                <Tag icon={<CloseCircleOutlined />} color="error">{t.sensorIQC.fail}</Tag>
-              )}
-            </Text>
-          </Space>
-        </Card>
-      )}
     </div>
   );
 };

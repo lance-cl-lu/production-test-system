@@ -175,10 +175,33 @@ const GatewayIQC = ({ language = 'zh-TW' }) => {
     <div>
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <div>
-            <Title level={2}>{t.gatewayIQC.title}</Title>
-            <Text type="secondary">{t.gatewayIQC.description}</Text>
-          </div>
+          <Row justify="space-between" align="top" gutter={[24, 16]}>
+            <Col xs={24} md={14}>
+              <Title level={2}>{t.gatewayIQC.title}</Title>
+              <Text type="secondary">{t.gatewayIQC.description}</Text>
+            </Col>
+            {Object.values(testResults).some(r => r !== null) && !testing && (
+              <Col xs={24} md={10} style={{ textAlign: 'right' }}>
+                <Space direction="vertical" size={2} align="end">
+                  <Title level={4} style={{ margin: 0 }}>{t.gatewayIQC.summary}</Title>
+                  <Text>
+                    {t.gatewayIQC.passed}: {Object.values(testResults).filter(r => r === 'pass').length} / {testItems.length}
+                  </Text>
+                  <Text>
+                    {t.gatewayIQC.failed}: {Object.values(testResults).filter(r => r === 'fail').length} / {testItems.length}
+                  </Text>
+                  <Text strong>
+                    {t.gatewayIQC.finalResult}: {' '}
+                    {Object.values(testResults).every(r => r === 'pass') ? (
+                      <Tag icon={<CheckCircleOutlined />} color="success">{t.gatewayIQC.pass}</Tag>
+                    ) : (
+                      <Tag icon={<CloseCircleOutlined />} color="error">{t.gatewayIQC.fail}</Tag>
+                    )}
+                  </Text>
+                </Space>
+              </Col>
+            )}
+          </Row>
 
           <Button
             type="primary"
@@ -221,27 +244,6 @@ const GatewayIQC = ({ language = 'zh-TW' }) => {
         </Row>
       </Card>
 
-      {Object.values(testResults).some(r => r !== null) && !testing && (
-        <Card style={{ marginTop: 24 }}>
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Title level={4}>{t.gatewayIQC.summary}</Title>
-            <Text>
-              {t.gatewayIQC.passed}: {Object.values(testResults).filter(r => r === 'pass').length} / {testItems.length}
-            </Text>
-            <Text>
-              {t.gatewayIQC.failed}: {Object.values(testResults).filter(r => r === 'fail').length} / {testItems.length}
-            </Text>
-            <Text strong>
-              {t.gatewayIQC.finalResult}: {' '}
-              {Object.values(testResults).every(r => r === 'pass') ? (
-                <Tag icon={<CheckCircleOutlined />} color="success">{t.gatewayIQC.pass}</Tag>
-              ) : (
-                <Tag icon={<CloseCircleOutlined />} color="error">{t.gatewayIQC.fail}</Tag>
-              )}
-            </Text>
-          </Space>
-        </Card>
-      )}
     </div>
   );
 };

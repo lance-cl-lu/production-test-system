@@ -676,6 +676,17 @@ static void run_test_drain(int fd, test_result_t *result) {
     result->ok = (drain_until_idle(fd, IDLE_MS) == 0);
 }
 
+/* Entering IPC passthrough may leave the target console between prompts.
+ * Keep every passthrough test aligned with the production watcher by sending
+ * four Enter keys before the actual test command. */
+static void send_passthrough_enters(int fd) {
+    for (int i = 0; i < 4; ++i) {
+        write_all(fd, "\r");
+        usleep(WAIT_MS * 1000);
+    }
+    (void)drain_until_idle(fd, IDLE_MS);
+}
+
 static void run_test_hvf_version(int fd, test_result_t *result) {
     char after_enter[256];
     char response[1024];
@@ -831,6 +842,7 @@ static void run_test_stm32_id_info_passthrough(int fd, test_result_t *result) {
         result->prompt_seen = 1;
     }
     usleep((WAIT_MS + 50) * 1000);
+    send_passthrough_enters(fd);
 
     if (send_command_collect(fd, "stm32_id_info", id_response, sizeof(id_response), 1500) != 0) {
         debug_print("[debug] stm32_id_info first try failed, retrying\n");
@@ -903,6 +915,7 @@ static void run_test_hvf_version_passthrough(int fd, test_result_t *result) {
         result->prompt_seen = 1;
     }
     usleep((WAIT_MS + 50) * 1000);
+    send_passthrough_enters(fd);
 
     if (send_command_collect(fd, "hvf_version", version_response, sizeof(version_response), 1500) != 0) {
         debug_print("[debug] hvf_version first try failed, retrying\n");
@@ -994,6 +1007,7 @@ static void run_test_gpio_button_passthrough(int fd, test_result_t *result, int 
         result->prompt_seen = 1;
     }
     usleep((WAIT_MS + 120) * 1000);
+    send_passthrough_enters(fd);
 
     snprintf(button_command, sizeof(button_command), "gpio_button %d", wait_seconds);
     snprintf(button_command_alt, sizeof(button_command_alt), "button %d", wait_seconds);
@@ -1104,6 +1118,7 @@ static void run_test_led_off_passthrough(int fd, test_result_t *result, int led_
         result->prompt_seen = 1;
     }
     usleep((WAIT_MS + 50) * 1000);
+    send_passthrough_enters(fd);
 
     snprintf(led_cmd, sizeof(led_cmd), "led_off %d", led_index);
     if (send_command_collect(fd, led_cmd, led_response, sizeof(led_response), 1200) != 0) {
@@ -1176,6 +1191,7 @@ static void run_test_led_on_passthrough(int fd, test_result_t *result, int led_i
         result->prompt_seen = 1;
     }
     usleep((WAIT_MS + 50) * 1000);
+    send_passthrough_enters(fd);
 
     snprintf(led_cmd, sizeof(led_cmd), "led_on %d", led_index);
     if (send_command_collect(fd, led_cmd, led_response, sizeof(led_response), 1200) != 0) {
@@ -1254,6 +1270,7 @@ static void run_test_buzzer_on_passthrough(int fd, test_result_t *result, int du
         result->prompt_seen = 1;
     }
     usleep((WAIT_MS + 50) * 1000);
+    send_passthrough_enters(fd);
 
     snprintf(buzzer_cmd, sizeof(buzzer_cmd), "buzzer_on %d", duration_ms);
     if (send_command_collect(fd, buzzer_cmd, buzzer_response, sizeof(buzzer_response), command_timeout_ms) != 0) {
@@ -1469,7 +1486,7 @@ static void run_test_ipc_spi_echo(int fd, test_result_t *result) {
         return;
     }
 
-    for (enter_count = 0; enter_count < 3; enter_count++) {
+    for (enter_count = 0; enter_count < 4; enter_count++) {
         write_all(fd, "\r");
         usleep(WAIT_MS * 1000);
     }

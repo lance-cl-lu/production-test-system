@@ -264,7 +264,9 @@ static int read_stm32_id_passthrough(platform_uart_t uart, char *out, size_t out
     char id_response[1024];
     char exit_response[1024];
     static const char *const passthrough_commands[] = {"ipc_passthrough", "passthrough"};
-    static const char *const passthrough_exit_commands[] = {"ipc_passthrough_exit", "passthrough_exit"};
+    static const char *const passthrough_exit_commands[] = {
+        "ipc_passthrough_exit", "ipc_passtrough_exit", "passthrough_exit"
+    };
 
     if (drain_until_idle(uart, IDLE_MS) != 0) {
         debug_print("[debug] initial drain failed\n");
@@ -283,7 +285,7 @@ static int read_stm32_id_passthrough(platform_uart_t uart, char *out, size_t out
     platform_sleep_ms((WAIT_MS + 50));
 
     // 進入 passthrough 後連按 Enter 並清空緩衝，避免 banner 殘留干擾後續回應
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         write_all(uart, "\r");
         platform_sleep_ms(WAIT_MS);
     }
@@ -300,6 +302,12 @@ static int read_stm32_id_passthrough(platform_uart_t uart, char *out, size_t out
     int extracted = extract_hvf_payload(id_response, out, out_len);
 
     // 無論讀取成敗都要退出 passthrough，否則裝置會卡在該模式
+    // 先用 Enter 重新同步 prompt 並清掉 IPC/UART 殘留，避免亂碼黏在 exit 指令前。
+    for (int i = 0; i < 4; i++) {
+        write_all(uart, "\r");
+        platform_sleep_ms(WAIT_MS);
+    }
+    (void)drain_until_idle(uart, IDLE_MS);
     int exit_ok = send_first_command_with_success_hints(
         uart, passthrough_exit_commands,
         sizeof(passthrough_exit_commands) / sizeof(passthrough_exit_commands[0]),
@@ -314,6 +322,12 @@ static int read_stm32_id_passthrough(platform_uart_t uart, char *out, size_t out
     // 只要 UID 已成功抽出，就視為讀取成功，避免誤判 SEARCH 失敗。
     if (exit_ok != 0 && strstr(exit_response, "<[OK]>") == NULL) {
         debug_print("[debug] passthrough exit not acknowledged, but UID already read\n");
+        // 韌體 banner 明確支援 Ctrl+C 離開；作為 exit 指令被 UART 亂碼破壞時的復原。
+        write_all(uart, "\x03");
+        platform_sleep_ms(WAIT_MS + 100);
+        write_all(uart, "\r");
+        (void)drain_until_idle(uart, IDLE_MS);
+        debug_print("[debug] sent Ctrl+C passthrough recovery\n");
     }
 
     return 0;

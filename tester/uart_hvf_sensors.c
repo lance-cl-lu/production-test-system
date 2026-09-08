@@ -196,51 +196,8 @@ int uart_hvf_measure_sensor(platform_uart_t uart, const char *sensor_name,
     return 0;
 }
 
-static int run_command_until_ok(platform_uart_t uart, const char *command, int timeout_ms) {
-    char response[2048];
-    int elapsed = 0;
-    const int slice_ms = 100;
-    size_t used = 0;
-
-    write_all(uart, command);
-    write_all(uart, "\r\n");
-
-    memset(response, 0, sizeof(response));
-    while (elapsed < timeout_ms) {
-        int wait_ms = timeout_ms - elapsed;
-        if (wait_ms > slice_ms) {
-            wait_ms = slice_ms;
-        }
-
-        if (used >= sizeof(response) - 1U) {
-            return -1;
-        }
-
-        int got = read_to_buffer(uart, response + used, sizeof(response) - used, wait_ms);
-        if (got > 0) {
-            used += (size_t)got;
-        }
-
-        if (strstr(response, "<[OK]>") != NULL) {
-            return 0;
-        }
-        if (strstr(response, "<[ERROR]>") != NULL ||
-            strstr(response, "Unknown command") != NULL) {
-            return -1;
-        }
-
-        // 某些韌體會直接回到 prompt 但不帶結果標記，避免一路等到 timeout。
-        if (strstr(response, "hvf>") != NULL) {
-            return -1;
-        }
-
-        elapsed += wait_ms;
-    }
-
-    return -1;
-}
-
 static int run_command_until_ok_capture(platform_uart_t uart, const char *command, int timeout_ms,
+                                        int stop_on_error,
                                         char *response_out, size_t response_out_size) {
     char response[2048];
     int elapsed = 0;
@@ -276,14 +233,8 @@ static int run_command_until_ok_capture(platform_uart_t uart, const char *comman
             }
             return 0;
         }
-        if (strstr(response, "<[ERROR]>") != NULL ||
-            strstr(response, "Unknown command") != NULL) {
-            if (response_out != NULL && response_out_size > 0U) {
-                snprintf(response_out, response_out_size, "%s", response);
-            }
-            return -1;
-        }
-        if (strstr(response, "hvf>") != NULL) {
+        if (stop_on_error && (strstr(response, "<[ERROR]>") != NULL ||
+                              strstr(response, "Unknown command") != NULL)) {
             if (response_out != NULL && response_out_size > 0U) {
                 snprintf(response_out, response_out_size, "%s", response);
             }
@@ -332,17 +283,20 @@ static int enter_passthrough(platform_uart_t uart) {
             entered = 1;
             break;
         }
-        if (!response_has_error_marker(response)) {
-            entered = 1;
-            break;
-        }
+        fprintf(stderr, "[PASSTHROUGH][debug] command '%s' did not enter WBA console: %s\n",
+                passthrough_commands[i], response[0] != '\0' ? response : "<empty>");
     }
 
     if (!entered) {
+        // 目前可能停在未知 console；Ctrl+C 是韌體宣告的 passthrough 復原方式。
+        write_all(uart, "\x03");
+        platform_sleep_ms(SENSOR_WAIT_MS + 100);
+        write_all(uart, "\r");
+        (void)drain_until_idle(uart, SENSOR_IDLE_MS);
         return -1;
     }
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         write_all(uart, "\r");
         platform_sleep_ms(SENSOR_WAIT_MS);
     }
@@ -355,6 +309,13 @@ static void exit_passthrough(platform_uart_t uart) {
         "ipc_passthrough_exit", "ipc_passtrough_exit", "passthrough_exit"
     };
 
+    // 重新同步 prompt，避免 IPC/UART 殘留位元組黏在 exit 指令前。
+    for (int i = 0; i < 4; ++i) {
+        write_all(uart, "\r");
+        platform_sleep_ms(SENSOR_WAIT_MS);
+    }
+    (void)drain_until_idle(uart, SENSOR_IDLE_MS);
+
     for (size_t i = 0; i < sizeof(passthrough_exit_commands) / sizeof(passthrough_exit_commands[0]); ++i) {
         (void)send_command_capture(uart, passthrough_exit_commands[i], response, sizeof(response), 2500);
         if (strstr(response, "IPC_IRQ pulse sent") != NULL ||
@@ -366,17 +327,29 @@ static void exit_passthrough(platform_uart_t uart) {
             return;
         }
     }
+
+    // 所有 exit 指令均未獲確認時，依韌體提示用 Ctrl+C 強制返回 WLE console。
+    write_all(uart, "\x03");
+    platform_sleep_ms(SENSOR_WAIT_MS + 100);
+    write_all(uart, "\r");
+    (void)drain_until_idle(uart, SENSOR_IDLE_MS);
 }
 
 int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms) {
     char command[64];
+    char response[2048];
     int result;
 
     if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
         return -1;
     }
     snprintf(command, sizeof(command), "buzzer_on %d", duration_ms);
-    result = run_command_until_ok(uart, command, duration_ms + 4000);
+    result = run_command_until_ok_capture(uart, command, duration_ms + 4000, 1,
+                                          response, sizeof(response));
+    if (result != 0) {
+        fprintf(stderr, "[BUZZER][debug] command response: %s\n",
+                response[0] != '\0' ? response : "<empty>");
+    }
     exit_passthrough(uart);
     return result;
 }
@@ -392,7 +365,7 @@ int uart_hvf_test_spi(platform_uart_t uart) {
         return -1;
     }
 
-    // 實機流程：ipc_passthrough -> Enter x3 -> ipc_spi_rx_echo_auto。
+    // 實機流程：ipc_passthrough -> Enter x4 -> ipc_spi_rx_echo_auto。
     // 這個指令結束後韌體會自行回到 WLE console，因此不要再下 exit 指令。
     int entered = 0;
     for (size_t i = 0; i < sizeof(spi_passthrough_commands) / sizeof(spi_passthrough_commands[0]); ++i) {
@@ -412,7 +385,7 @@ int uart_hvf_test_spi(platform_uart_t uart) {
         return -1;
     }
 
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         write_all(uart, "\r");
         platform_sleep_ms(SENSOR_WAIT_MS);
     }
@@ -420,7 +393,7 @@ int uart_hvf_test_spi(platform_uart_t uart) {
         return -1;
     }
 
-    if (run_command_until_ok_capture(uart, "ipc_spi_rx_echo_auto", SPI_RX_TIMEOUT_MS,
+    if (run_command_until_ok_capture(uart, "ipc_spi_rx_echo_auto", SPI_RX_TIMEOUT_MS, 1,
                                      response, sizeof(response)) == 0) {
         spi_debug_dump("ipc_spi_rx_echo_auto response", response);
         result = 0;
@@ -433,8 +406,10 @@ int uart_hvf_test_spi(platform_uart_t uart) {
 
 int uart_hvf_test_button(platform_uart_t uart, int wait_seconds) {
     char command[64];
+    char response[2048];
     int timeout_ms;
-    int result;
+    int result = -1;
+    const int max_arm_attempts = 20;
 
     if (wait_seconds <= 0) {
         return -1;
@@ -445,7 +420,53 @@ int uart_hvf_test_button(platform_uart_t uart, int wait_seconds) {
 
     snprintf(command, sizeof(command), "gpio_button %d", wait_seconds);
     timeout_ms = wait_seconds * 1000 + 800;
-    result = run_command_until_ok(uart, command, timeout_ms);
+    for (int arm_attempt = 1; arm_attempt <= max_arm_attempts; ++arm_attempt) {
+        int initial_bytes;
+
+        memset(response, 0, sizeof(response));
+        write_all(uart, command);
+        write_all(uart, "\r\n");
+
+        // gpio_button 被接受後會保持安靜等待按鍵。若立即讀到任何文字，表示
+        // console 尚未進入等待狀態，直接重送指令，不耗完整的 5 秒 timeout。
+        initial_bytes = read_to_buffer(uart, response, sizeof(response), 350);
+        if (strstr(response, "<[OK]>") != NULL) {
+            result = 0;
+            break;
+        }
+        if (initial_bytes > 0) {
+            fprintf(stderr,
+                    "[BUTTON][debug] command produced text; retry arm %d/%d: %s\n",
+                    arm_attempt, max_arm_attempts,
+                    response[0] != '\0' ? response : "<empty>");
+            continue;
+        }
+
+        // 沒有立即輸出代表 gpio_button 已進入阻塞等待；此後只等待按鍵結果，
+        // 不再重送指令。按下收到 <[OK]> 即成功，否則等到 timeout。
+        {
+            int elapsed = 0;
+            size_t used = 0;
+            while (elapsed < timeout_ms) {
+                int wait_ms = timeout_ms - elapsed;
+                if (wait_ms > 100) wait_ms = 100;
+                int got = read_to_buffer(uart, response + used,
+                                         sizeof(response) - used, wait_ms);
+                if (got > 0) used += (size_t)got;
+                if (strstr(response, "<[OK]>") != NULL) {
+                    result = 0;
+                    break;
+                }
+                if (used >= sizeof(response) - 1U) break;
+                elapsed += wait_ms;
+            }
+        }
+        break;
+    }
+    if (result != 0) {
+        fprintf(stderr, "[BUTTON][debug] %s response: %s\n", command,
+                response[0] != '\0' ? response : "<empty>");
+    }
 
     // 無論成功失敗，都要退出 passthrough，避免後續指令卡在同一模式。
     exit_passthrough(uart);
@@ -458,6 +479,7 @@ int uart_hvf_test_led(platform_uart_t uart, int led_index) {
 
 int uart_hvf_set_led(platform_uart_t uart, int led_index, int on) {
     char command[32];
+    char response[2048];
     int result;
 
     if ((led_index != 1 && led_index != 2) ||
@@ -466,7 +488,12 @@ int uart_hvf_set_led(platform_uart_t uart, int led_index, int on) {
     }
 
     snprintf(command, sizeof(command), "%s %d", on ? "led_on" : "led_off", led_index);
-    result = run_command_until_ok(uart, command, 1500);
+    result = run_command_until_ok_capture(uart, command, 1500, 1,
+                                          response, sizeof(response));
+    if (result != 0) {
+        fprintf(stderr, "[LED][debug] %s response: %s\n", command,
+                response[0] != '\0' ? response : "<empty>");
+    }
     exit_passthrough(uart);
     return result;
 }

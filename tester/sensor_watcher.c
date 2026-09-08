@@ -248,7 +248,15 @@ void run_test_stage(const char *stage, const char *serial) {
                     return;
                 }
 
-                if (uart_hvf_test_buzzer(uart_fd, 3000) != 0) {
+                int result = -1;
+                for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
+                    result = uart_hvf_test_buzzer(uart_fd, 3000);
+                    if (result != 0 && attempt < 3) {
+                        printf("[BUZZER] command failed => retry %d/3\n", attempt + 1);
+                        platform_sleep_ms(150);
+                    }
+                }
+                if (result != 0) {
                     send_event(serial, stage, "fail",
                                "\"test\":\"testBuzzer\",\"executed\":false");
                     printf("fail  {\"test\":\"testBuzzer\",\"executed\":false}\n");
@@ -300,7 +308,15 @@ void run_test_stage(const char *stage, const char *serial) {
             return;
         }
 
-        int result = uart_hvf_test_led(uart_fd, led_index);
+        int result = -1;
+        for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
+            result = uart_hvf_test_led(uart_fd, led_index);
+            if (result != 0 && attempt < 3) {
+                printf("[LED] %s index=%d => retry %d/3\n",
+                       stage, led_index, attempt + 1);
+                platform_sleep_ms(150);
+            }
+        }
         if (result == 0) {
             send_event(serial, stage, "testing", "\"awaiting_user_confirmation\":true");
             printf("testing  {\"led_color\":\"%s\",\"led_index\":%d,\"awaiting_user_confirmation\":true}\n",
@@ -355,7 +371,7 @@ void run_test_stage(const char *stage, const char *serial) {
         if (simulate_mode) {
             const char *status = pass_or_fail(PASS_RATIO);
             snprintf(detail, sizeof(detail), "\"press_count\":%d,\"window_s\":%d",
-                     strcmp(status, "pass") == 0 ? 1 : 0, 3);
+                     strcmp(status, "pass") == 0 ? 1 : 0, 5);
             send_event(serial, stage, status, detail);
             printf("%s  {%s}\n", status, detail);
             platform_sleep_ms(300);
@@ -368,7 +384,7 @@ void run_test_stage(const char *stage, const char *serial) {
             return;
         }
 
-        int wait_seconds = 3;
+        int wait_seconds = 5;
         int result = uart_hvf_test_button(uart_fd, wait_seconds);
         const char *status = result == 0 ? "pass" : "fail";
         snprintf(detail, sizeof(detail), "\"press_count\":%d,\"window_s\":%d",
