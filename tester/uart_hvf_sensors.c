@@ -131,7 +131,7 @@ static int extract_numeric_payload(const char *response, double *value) {
 
 static int run_measurement_command(sensor_probe_context_t *context,
                                    const char *command, double *value) {
-    snprintf(context->response, sizeof(context->response), "");
+    context->response[0] = '\0';
     write_all(context->uart, command);
     write_all(context->uart, "\r\n");
     platform_sleep_ms(SENSOR_WAIT_MS);

@@ -12,10 +12,16 @@ fi
 
 # 默認開發模式
 COMPOSE_FILE="docker-compose.yml"
+ENV_FILE=""
 
 # 如果傳入 'prod' 參數則使用生產配置
 if [ "$1" = "prod" ]; then
     COMPOSE_FILE="docker-compose.prod.yml"
+    ENV_FILE="env.factory.production"
+    if [ ! -f "$ENV_FILE" ]; then
+        echo "❌ 找不到生產環境設定檔: $ENV_FILE"
+        exit 1
+    fi
     echo "🚀 啟動生產測試系統 (Docker Compose - 生產模式)..."
 else
     echo "🚀 啟動生產測試系統 (Docker Compose - 開發模式)..."
@@ -32,7 +38,11 @@ fi
 
 # 啟動所有 Docker 容器
 echo "📦 啟動所有服務 (MySQL + Backend + Frontend)..."
-if ! "${COMPOSE[@]}" -f "$COMPOSE_FILE" up -d --build; then
+COMPOSE_ENV_ARGS=()
+if [ -n "$ENV_FILE" ]; then
+    COMPOSE_ENV_ARGS=(--env-file "$ENV_FILE")
+fi
+if ! "${COMPOSE[@]}" "${COMPOSE_ENV_ARGS[@]}" -f "$COMPOSE_FILE" up -d --build; then
     echo ""
     echo "❌ 服務啟動失敗；上方為 Docker Compose 的錯誤訊息。"
     echo "   請先排除錯誤後再重新執行 ./start.sh。"

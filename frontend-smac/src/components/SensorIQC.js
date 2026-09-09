@@ -855,6 +855,17 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                             >
                               {t.sensorIQC.testSingle}
                             </Button>
+                          ) : testResults[item.key] === 'fail' ? (
+                            <Space size={4}>
+                              {getResultTag(testResults[item.key])}
+                              <Button
+                                size="small"
+                                onClick={() => runSingleStage(item.key)}
+                                disabled={!serialWle.trim() || testing || runningStage !== null}
+                              >
+                                {t.sensorIQC.retest}
+                              </Button>
+                            </Space>
                           ) : (
                             getResultTag(testResults[item.key])
                           )}
