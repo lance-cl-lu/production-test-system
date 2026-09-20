@@ -98,8 +98,9 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
   const exportCsv = async () => {
     setExporting(true);
     try {
+      const exportLanguage = language === 'en' ? 'en-US' : language;
       const response = await testRecordsAPI.exportSensorTestRuns({
-        ...filterParams(), language,
+        ...filterParams(), language: exportLanguage,
       });
       const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');
