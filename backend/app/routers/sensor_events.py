@@ -508,10 +508,11 @@ def export_sensor_test_runs_csv(
     test_result: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    language: Literal["zh-TW", "en-US", "vi"] = "zh-TW",
+    language: Literal["zh-TW", "zh", "en-US", "en", "vi"] = "zh-TW",
     db: Session = Depends(get_db),
 ):
     """Export every Sensor session matching the current UI filters."""
+    language = {"zh": "zh-TW", "en": "en-US"}.get(language, language)
     query = db.query(SensorTestRun).options(selectinload(SensorTestRun.items)).filter(
         SensorTestRun.run_mode == "session"
     )

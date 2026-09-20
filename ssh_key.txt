@@ -1,0 +1,6 @@
+root@ubuntu-s-1vcpu-1gb-sgp1:/opt/production-test-system# openssl rand -hex 32
+7d80ff59d5172dc10972dfda32e754c1dc43f7da289d08efc7d10cf4c6baa161
+root@ubuntu-s-1vcpu-1gb-sgp1:/opt/production-test-system# openssl rand -hex 24
+a8edd008c0f90c7a4cfb1e37ad95bc408801b7d08dacaf26
+root@ubuntu-s-1vcpu-1gb-sgp1:/opt/production-test-system# openssl rand -hex 24
+feb256e6bbcf9ba0b140cbdec9858d164d431cf651151e7c
