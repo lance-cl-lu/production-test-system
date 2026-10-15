@@ -1,5 +1,9 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+FLASH_AGENT_PID_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.pid"
+FLASH_AGENT_LOG_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.log"
+
 # 優先使用 Docker Compose v2 (docker compose)，找不到才退回 v1 (docker-compose)
 if docker compose version >/dev/null 2>&1; then
     COMPOSE=(docker compose)
@@ -70,6 +74,29 @@ wait_for() {
 wait_for "後端 API  (8000)" "http://localhost:8000/docs"
 wait_for "前端 SMAC (3000)" "http://localhost:3000/"
 wait_for "前端 NL   (3001)" "http://localhost:3001/"
+
+if curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
+    echo "   ✅ 主機燒錄服務已就緒 (8765)"
+else
+    echo "🔌 啟動主機 ST-Link 燒錄服務..."
+    if [ -f "${FLASH_AGENT_PID_FILE}" ]; then
+        OLD_FLASH_AGENT_PID="$(cat "${FLASH_AGENT_PID_FILE}")"
+        kill "${OLD_FLASH_AGENT_PID}" 2>/dev/null || true
+        sleep 1
+    fi
+    nohup python3 "${SCRIPT_DIR}/flash_agent.py" >>"${FLASH_AGENT_LOG_FILE}" 2>&1 </dev/null &
+    echo $! >"${FLASH_AGENT_PID_FILE}"
+    for _ in {1..10}; do
+        if curl -fsS "http://127.0.0.1:8765/health" >/dev/null 2>&1; then
+            echo "   ✅ 主機燒錄服務已就緒 (8765)"
+            break
+        fi
+        sleep 1
+    done
+    if ! curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
+        echo "   ⚠️ 主機燒錄服務啟動失敗；請查看 ${FLASH_AGENT_LOG_FILE}"
+    fi
+fi
 
 echo ""
 echo "✅ 系統啟動完成！"

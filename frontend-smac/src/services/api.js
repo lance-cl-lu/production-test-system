@@ -52,6 +52,10 @@ export const testRecordsAPI = {
   getSensorTestRunStats: () => api.get('/api/sensor/test-runs/stats'),
   deleteSensorTestRun: (id) => api.delete(`/api/sensor/test-runs/${id}`),
   getCloudStatus: () => api.get('/api/cloud/status'),
+  flashFirmware: (mode) => fetch(
+    `${process.env.REACT_APP_FLASH_AGENT_URL || 'http://127.0.0.1:8765'}/api/firmware/${mode}/flash`,
+    { method: 'POST' }
+  ),
 };
 
 // Health Check

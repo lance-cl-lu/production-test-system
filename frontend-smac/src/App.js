@@ -7,6 +7,9 @@ import {
   RadarChartOutlined,
   GlobalOutlined,
   CloudOutlined,
+  DownloadOutlined,
+  BugOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import Dashboard from './components/Dashboard';
 import TestRecordList from './components/TestRecordList';
@@ -14,6 +17,7 @@ import SensorIQC from './components/SensorIQC';
 import GatewayIQC from './components/GatewayIQC';
 import ProgramMacUID from './components/ProgramMacUID';
 import FinalTest from './components/FinalTest';
+import FirmwareFlash from './components/FirmwareFlash';
 import { useWebSocket } from './services/websocket';
 import { translations } from './i18n/locales';
 import { testRecordsAPI } from './services/api';
@@ -106,6 +110,21 @@ function App() {
       label: t.dashboard,
     },
     {
+      key: 'test-firmware-flash',
+      icon: <DownloadOutlined />,
+      label: t.testFirmwareFlash,
+    },
+    {
+      key: 'diagnostics-firmware-flash',
+      icon: <BugOutlined />,
+      label: t.diagnosticsFirmwareFlash,
+    },
+    {
+      key: 'smac-firmware-flash',
+      icon: <CodeOutlined />,
+      label: t.smacFirmwareFlash,
+    },
+    {
       key: 'sensor-iqc',
       icon: <RadarChartOutlined />,
       label: t.sensorIQCMenu,
@@ -131,6 +150,12 @@ function App() {
         return <FinalTest language={language} />;
       case 'records':
         return <TestRecordList onNewRecord={newRecordTrigger} language={language} />;
+      case 'test-firmware-flash':
+        return <FirmwareFlash language={language} />;
+      case 'diagnostics-firmware-flash':
+        return <FirmwareFlash language={language} mode="diagnostics" />;
+      case 'smac-firmware-flash':
+        return <div>{t.inDevelopment}</div>;
       default:
         return <Dashboard language={language} />;
     }

@@ -12,6 +12,7 @@ fi
 
 # 默認開發模式
 COMPOSE_FILE="docker-compose.yml"
+FLASH_AGENT_PID_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.pid"
 
 # 如果傳入 'prod' 參數則使用生產配置
 if [ "$1" = "prod" ]; then
@@ -26,6 +27,15 @@ echo ""
 # 停止所有 Docker 容器
 echo "停止所有容器..."
 "${COMPOSE[@]}" -f "$COMPOSE_FILE" down
+
+if [ -f "${FLASH_AGENT_PID_FILE}" ]; then
+    FLASH_AGENT_PID="$(cat "${FLASH_AGENT_PID_FILE}")"
+    if kill -0 "${FLASH_AGENT_PID}" 2>/dev/null; then
+        kill "${FLASH_AGENT_PID}" 2>/dev/null || true
+        echo "已停止主機 ST-Link 燒錄服務。"
+    fi
+    rm -f "${FLASH_AGENT_PID_FILE}"
+fi
 
 echo ""
 echo "✅ 系統已停止"
