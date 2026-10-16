@@ -21,7 +21,7 @@ export const translations = {
     smacFirmwareFlash: 'SMAC 軟體燒錄',
     firmwareFlash: {
       title: '測試軟體燒錄',
-      description: '先讀取兩顆 MCU 的唯一 ID，再依序燒錄 WBA 和 WLE。',
+      description: '自動偵測 ST-Link 與 MCU：只有一支探針時燒錄所連接的 MCU；有兩支時依序燒錄 WBA 和 WLE。',
       idPlaceholder: '開始後自動讀取',
       start: '開始燒錄',
       running: '讀取 / 燒錄中...',
@@ -283,7 +283,7 @@ export const translations = {
     smacFirmwareFlash: 'SMAC Firmware Flashing',
     firmwareFlash: {
       title: 'Test Firmware Flashing',
-      description: 'Read both MCU unique IDs, then flash WBA followed by WLE.',
+      description: 'Automatically detect the ST-Link probes and MCUs. With one probe, flash its connected MCU; with two, flash WBA followed by WLE.',
       idPlaceholder: 'Read automatically when started',
       start: 'Start Flashing',
       running: 'Reading / flashing...',
@@ -547,7 +547,7 @@ translations.vi = {
   smacFirmwareFlash: 'Nạp firmware SMAC',
   firmwareFlash: {
     title: 'Nạp firmware kiểm tra',
-    description: 'Đọc ID duy nhất của hai MCU, sau đó nạp WBA rồi đến WLE.',
+    description: 'Tự động nhận diện ST-Link và MCU. Nếu có một probe, nạp MCU được kết nối; nếu có hai, nạp WBA rồi đến WLE.',
     idPlaceholder: 'Tự động đọc khi bắt đầu',
     start: 'Bắt đầu nạp',
     running: 'Đang đọc / nạp...',

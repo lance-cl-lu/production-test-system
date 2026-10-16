@@ -28,6 +28,7 @@ const { Title } = Typography;
 
 function App() {
   const [currentMenu, setCurrentMenu] = useState('dashboard');
+  const [firmwareFlashViewKey, setFirmwareFlashViewKey] = useState(0);
   const [newRecordTrigger, setNewRecordTrigger] = useState(0);
   const [cloudStatus, setCloudStatus] = useState({ status: 'checking' });
   const [language, setLanguage] = useState(() => {
@@ -103,6 +104,13 @@ function App() {
   const cloudVisual = cloudVisuals[cloudStatus.status] || cloudVisuals.error;
   const cloudTooltip = `${t.cloudPendingCount}: ${cloudStatus.pending || 0}; ${t.cloudFailedCount}: ${cloudStatus.failed || 0}`;
 
+  const handleMenuClick = ({ key }) => {
+    setCurrentMenu(key);
+    if (key === 'test-firmware-flash' || key === 'diagnostics-firmware-flash') {
+      setFirmwareFlashViewKey((previous) => previous + 1);
+    }
+  };
+
   const menuItems = [
     {
       key: 'dashboard',
@@ -151,9 +159,9 @@ function App() {
       case 'records':
         return <TestRecordList onNewRecord={newRecordTrigger} language={language} />;
       case 'test-firmware-flash':
-        return <FirmwareFlash language={language} />;
+        return <FirmwareFlash key={firmwareFlashViewKey} language={language} />;
       case 'diagnostics-firmware-flash':
-        return <FirmwareFlash language={language} mode="diagnostics" />;
+        return <FirmwareFlash key={firmwareFlashViewKey} language={language} mode="diagnostics" />;
       case 'smac-firmware-flash':
         return <div>{t.inDevelopment}</div>;
       default:
@@ -207,7 +215,7 @@ function App() {
           <Menu
             mode="inline"
             selectedKeys={[currentMenu]}
-            onClick={({ key }) => setCurrentMenu(key)}
+            onClick={handleMenuClick}
             style={{ height: '100%', borderRight: 0 }}
             items={menuItems}
           />
