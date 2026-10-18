@@ -88,7 +88,7 @@ WBA_INFO=""
 FLASH_WBA=1
 FLASH_WLE=1
 
-if [[ "${PROBE_COUNT}" -eq 1 && "${MODE}" == "hvf" ]]; then
+if [[ "${PROBE_COUNT}" -eq 1 && ( "${MODE}" == "hvf" || "${MODE}" == "diagnostics" ) ]]; then
   INFO="$("${CLI}" -c "port=SWD index=0" 2>&1 | sed $'s/\033\\[[0-9;]*[[:alpha:]]//g' || true)"
   if grep -Eqi 'STM32WBA5|STM32WBA55' <<<"${INFO}"; then
     WBA_INDEX=0
@@ -99,7 +99,7 @@ if [[ "${PROBE_COUNT}" -eq 1 && "${MODE}" == "hvf" ]]; then
   elif grep -Eqi 'STM32WL' <<<"${INFO}"; then
     WLE_INDEX=0
     FLASH_WBA=0
-    TARGET_NAME="WLE"
+    TARGET_NAME="${SECOND_NAME}"
     TARGET_INDEX="${WLE_INDEX}"
   else
     echo "Could not identify the MCU connected to the only ST-Link; aborting." >&2
@@ -158,10 +158,10 @@ read_uid() {
   echo "${name}_ID=${uid}"
 }
 
-# The WBA5 96-bit UID starts at DESIG_UIDR1; the WLE5 UID is in system memory.
+# The WBA5 UID starts at DESIG_UIDR1; the WL-family UID is in system memory.
 if [[ "${FLASH_WBA}" -eq 1 ]]; then
   if ! read_uid WBA "${WBA_INDEX}" 0x0BF90500; then
-    if [[ "${PROBE_COUNT}" -eq 1 && "${MODE}" == "hvf" ]]; then
+    if [[ "${PROBE_COUNT}" -eq 1 && ( "${MODE}" == "hvf" || "${MODE}" == "diagnostics" ) ]]; then
       echo "Warning: WBA ID read failed; continuing with the detected WBA flash." >&2
     else
       exit 1
@@ -170,8 +170,8 @@ if [[ "${FLASH_WBA}" -eq 1 ]]; then
 fi
 if [[ "${FLASH_WLE}" -eq 1 ]]; then
   if ! read_uid "${SECOND_ID_NAME}" "${WLE_INDEX}" 0x1FFF7590; then
-    if [[ "${PROBE_COUNT}" -eq 1 && "${MODE}" == "hvf" ]]; then
-      echo "Warning: WLE ID read failed; continuing with the detected WLE flash." >&2
+    if [[ "${PROBE_COUNT}" -eq 1 && ( "${MODE}" == "hvf" || "${MODE}" == "diagnostics" ) ]]; then
+      echo "Warning: ${SECOND_NAME} ID read failed; continuing with the detected ${SECOND_NAME} flash." >&2
     else
       exit 1
     fi

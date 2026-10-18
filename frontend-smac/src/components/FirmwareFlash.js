@@ -12,6 +12,7 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
   const secondaryMcu = mode === 'diagnostics' ? 'WL' : 'WLE';
   const [wbaId, setWbaId] = useState('');
   const [secondaryId, setSecondaryId] = useState('');
+  const [diagnosticsSerial, setDiagnosticsSerial] = useState('');
   const [flashing, setFlashing] = useState(false);
   const [result, setResult] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -86,18 +87,30 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
 
       <Card>
         <Row gutter={[12, 12]} align="middle">
-          <Col xs={24} md={10}>
+          {mode === 'diagnostics' && (
+            <Col xs={24} md={6}>
+              <Input
+                addonBefore={copy.serialNumberLabel}
+                value={diagnosticsSerial}
+                placeholder={copy.serialNumberPlaceholder}
+                inputMode="numeric"
+                maxLength={8}
+                onChange={(event) => setDiagnosticsSerial(event.target.value.replace(/\D/g, '').slice(0, 8))}
+              />
+            </Col>
+          )}
+          <Col xs={24} md={mode === 'diagnostics' ? 6 : 10}>
             <Input addonBefore="WBA" value={wbaId} placeholder={copy.idPlaceholder} readOnly />
           </Col>
-          <Col xs={24} md={10}>
+          <Col xs={24} md={mode === 'diagnostics' ? 6 : 10}>
             <Input addonBefore={secondaryMcu} value={secondaryId} placeholder={copy.idPlaceholder} readOnly />
           </Col>
-          <Col xs={24} md={4} style={{ textAlign: 'right' }}>
+          <Col xs={24} md={mode === 'diagnostics' ? 6 : 4} style={{ textAlign: 'right' }}>
             <Button
               type="primary"
               icon={<PlayCircleOutlined />}
               loading={flashing}
-              disabled={flashing}
+              disabled={flashing || (mode === 'diagnostics' && !/^\d{8}$/.test(diagnosticsSerial))}
               onClick={handleStart}
               block
             >
