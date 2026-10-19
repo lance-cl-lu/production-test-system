@@ -335,12 +335,13 @@ static void exit_passthrough(platform_uart_t uart) {
     (void)drain_until_idle(uart, SENSOR_IDLE_MS);
 }
 
-int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms) {
+int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms, int use_passthrough) {
     char command[64];
     char response[2048];
     int result;
 
-    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 ||
+        (use_passthrough && enter_passthrough(uart) != 0)) {
         return -1;
     }
     snprintf(command, sizeof(command), "buzzer_on %d", duration_ms);
@@ -350,7 +351,9 @@ int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms) {
         fprintf(stderr, "[BUZZER][debug] command response: %s\n",
                 response[0] != '\0' ? response : "<empty>");
     }
-    exit_passthrough(uart);
+    if (use_passthrough) {
+        exit_passthrough(uart);
+    }
     return result;
 }
 
@@ -404,7 +407,7 @@ int uart_hvf_test_spi(platform_uart_t uart) {
     return result;
 }
 
-int uart_hvf_test_button(platform_uart_t uart, int wait_seconds) {
+int uart_hvf_test_button(platform_uart_t uart, int wait_seconds, int use_passthrough) {
     char command[64];
     char response[2048];
     int timeout_ms;
@@ -414,7 +417,8 @@ int uart_hvf_test_button(platform_uart_t uart, int wait_seconds) {
     if (wait_seconds <= 0) {
         return -1;
     }
-    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
+    if (drain_until_idle(uart, SENSOR_IDLE_MS) != 0 ||
+        (use_passthrough && enter_passthrough(uart) != 0)) {
         return -1;
     }
 
@@ -468,22 +472,25 @@ int uart_hvf_test_button(platform_uart_t uart, int wait_seconds) {
                 response[0] != '\0' ? response : "<empty>");
     }
 
-    // 無論成功失敗，都要退出 passthrough，避免後續指令卡在同一模式。
-    exit_passthrough(uart);
+    // 單 UART 模式才進出 IPC passthrough；雙 UART 模式直接在 WBA console 操作。
+    if (use_passthrough) {
+        exit_passthrough(uart);
+    }
     return result;
 }
 
-int uart_hvf_test_led(platform_uart_t uart, int led_index) {
-    return uart_hvf_set_led(uart, led_index, 1);
+int uart_hvf_test_led(platform_uart_t uart, int led_index, int use_passthrough) {
+    return uart_hvf_set_led(uart, led_index, 1, use_passthrough);
 }
 
-int uart_hvf_set_led(platform_uart_t uart, int led_index, int on) {
+int uart_hvf_set_led(platform_uart_t uart, int led_index, int on, int use_passthrough) {
     char command[32];
     char response[2048];
     int result;
 
     if ((led_index != 1 && led_index != 2) ||
-        drain_until_idle(uart, SENSOR_IDLE_MS) != 0 || enter_passthrough(uart) != 0) {
+        drain_until_idle(uart, SENSOR_IDLE_MS) != 0 ||
+        (use_passthrough && enter_passthrough(uart) != 0)) {
         return -1;
     }
 
@@ -494,7 +501,9 @@ int uart_hvf_set_led(platform_uart_t uart, int led_index, int on) {
         fprintf(stderr, "[LED][debug] %s response: %s\n", command,
                 response[0] != '\0' ? response : "<empty>");
     }
-    exit_passthrough(uart);
+    if (use_passthrough) {
+        exit_passthrough(uart);
+    }
     return result;
 }
 

@@ -487,7 +487,8 @@ void run_test_stage(const char *stage, const char *serial) {
 
                 int result = -1;
                 for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
-                    result = uart_hvf_test_buzzer(uart_fd, 3000);
+                    platform_uart_t buzzer_uart = dual_uart_mode ? uart_fd2 : uart_fd;
+                    result = uart_hvf_test_buzzer(buzzer_uart, 3000, !dual_uart_mode);
                     if (result != 0 && attempt < 3) {
                         printf("[BUZZER] command failed => retry %d/3\n", attempt + 1);
                         platform_sleep_ms(150);
@@ -547,7 +548,8 @@ void run_test_stage(const char *stage, const char *serial) {
 
         int result = -1;
         for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
-            result = uart_hvf_test_led(uart_fd, led_index);
+            platform_uart_t led_uart = dual_uart_mode ? uart_fd2 : uart_fd;
+            result = uart_hvf_test_led(led_uart, led_index, !dual_uart_mode);
             if (result != 0 && attempt < 3) {
                 printf("[LED] %s index=%d => retry %d/3\n",
                        stage, led_index, attempt + 1);
@@ -588,7 +590,8 @@ void run_test_stage(const char *stage, const char *serial) {
 
         int result = -1;
         for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
-            result = uart_hvf_set_led(uart_fd, led_index, 0);
+            platform_uart_t led_uart = dual_uart_mode ? uart_fd2 : uart_fd;
+            result = uart_hvf_set_led(led_uart, led_index, 0, !dual_uart_mode);
             if (result != 0 && attempt < 3) {
                 printf("[LED] %s index=%d => retry %d/3\n",
                        stage, led_index, attempt + 1);
@@ -622,7 +625,9 @@ void run_test_stage(const char *stage, const char *serial) {
         }
 
         int wait_seconds = 5;
-        int result = uart_hvf_test_button(uart_fd, wait_seconds);
+        int use_passthrough = !dual_uart_mode;
+        platform_uart_t button_uart = dual_uart_mode ? uart_fd2 : uart_fd;
+        int result = uart_hvf_test_button(button_uart, wait_seconds, use_passthrough);
         const char *status = result == 0 ? "pass" : "fail";
         snprintf(detail, sizeof(detail), "\"press_count\":%d,\"window_s\":%d",
                  result == 0 ? 1 : 0, wait_seconds);
