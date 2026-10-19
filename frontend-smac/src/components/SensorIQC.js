@@ -74,6 +74,32 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     pressure: 0,
   });
 
+  useEffect(() => {
+    let active = true;
+    testRecordsAPI.getSensorUartStatus()
+      .then(({ data }) => {
+        if (!active) return;
+        if (data?.status === 'success') {
+          setWleUartPort(data.port_wle);
+          setWbaUartPort(data.port_wba);
+          setUartDetected(true);
+          setUartDetectionLogs((current) => [
+            ...current,
+            `[${new Date().toLocaleTimeString()}] ${t.sensorIQC.uartDetectionSuccess}`,
+            `WLE: ${data.port_wle} | WBA: ${data.port_wba}`,
+          ].slice(-100));
+        } else {
+          setUartDetected(false);
+          setWleUartPort('');
+          setWbaUartPort('');
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load UART detection status:', error);
+      });
+    return () => { active = false; };
+  }, [t.sensorIQC.uartDetectionSuccess]);
+
   const testItems = [
     { key: 'getSensorIC', name: t.sensorIQC.getSensorIC, icon: '🔌' },
     { key: 'sht41', name: t.sensorIQC.sht41, icon: '🌡️' },
@@ -518,7 +544,63 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     try {
       const response = await testRecordsAPI.runSensorStage({ serial: sn, stage: stageKey });
-      stageRequestIdsRef.current[stageKey] = response.data.request_id;
+      const requestId = response.data.request_id;
+      stageRequestIdsRef.current[stageKey] = requestId;
+
+      // 單項測試不可只依賴 WebSocket；若事件在連線中斷或重連時遺失，
+      // 從後端保存的 request_id 狀態補回實際測試結果，避免誤判 Timeout。
+      void (async () => {
+        if (!requestId) return;
+        const deadline = Date.now() + STAGE_TIMEOUT_MS;
+        while (Date.now() < deadline && stageRequestIdsRef.current[stageKey] === requestId) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (stageRequestIdsRef.current[stageKey] !== requestId) return;
+          try {
+            const resultResponse = await testRecordsAPI.getSensorStageResult({
+              serial: sn,
+              stage: stageKey,
+              request_id: requestId,
+            });
+            const { status, detail } = resultResponse.data;
+            requestManualConfirmation({ serial: sn, stage: stageKey, status, detail });
+            if (status !== 'pass' && status !== 'fail') continue;
+
+            if (stageTimeoutStageRef.current === stageKey) {
+              clearTimeout(stageTimeoutRef.current);
+              stageTimeoutStageRef.current = null;
+            }
+            testResultsRef.current = { ...testResultsRef.current, [stageKey]: status };
+            setTestResults({ ...testResultsRef.current });
+            if (detail) {
+              const previousData = testDataRef.current;
+              let nextSensors = previousData.sensors;
+              if (stageKey === 'getSensorIC') {
+                nextSensors = ['sht41', 'ens210', 'lps22df', 'bme690']
+                  .filter(sensor => detail[sensor] === true);
+              } else if (detail.sensor && detail.detected === true &&
+                         !previousData.sensors.includes(detail.sensor)) {
+                nextSensors = [...previousData.sensors, detail.sensor];
+              }
+              const nextData = {
+                ...previousData,
+                ...detail,
+                sensors: nextSensors,
+                sensorMeasurements: {
+                  ...previousData.sensorMeasurements,
+                  [stageKey]: detail,
+                },
+              };
+              testDataRef.current = nextData;
+              setTestData(nextData);
+            }
+            setRunningStage(null);
+            delete stageRequestIdsRef.current[stageKey];
+            return;
+          } catch (pollError) {
+            console.warn(`Failed to poll single stage ${stageKey}:`, pollError);
+          }
+        }
+      })();
     } catch (error) {
       console.error('Failed to run stage:', error);
       requestManualConfirmation({ serial: sn, stage: stageKey, status: 'fail' });
@@ -802,17 +884,15 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const visibleTestItems = testItems.filter(item =>
     !probeFinished || !sensorKeys.includes(item.key) || testData.sensors.includes(item.key)
   );
-  const passedCount = visibleTestItems.filter(item => testResults[item.key] === 'pass').length;
-  const failedCount = visibleTestItems.filter(item => testResults[item.key] === 'fail').length;
-  const allVisibleTestsPassed = visibleTestItems.length > 0 &&
-    visibleTestItems.every(item => testResults[item.key] === 'pass');
-
+  const completedTestCount = testItems.filter(item =>
+    testResults[item.key] === 'pass' || testResults[item.key] === 'fail'
+  ).length;
   return (
     <div>
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <Row justify="space-between" align="top" gutter={[16, 16]}>
-            <Col xs={24} md={12}>
+            <Col xs={24} md={6}>
               <Title level={2}>{t.sensorIQC.title}</Title>
               <Text type="secondary">{t.sensorIQC.description}</Text>
             </Col>
@@ -823,13 +903,13 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                 styles={{ header: { minHeight: 36, padding: '0 12px' }, body: { padding: 12 } }}
               >
                 <Row gutter={[8, 4]} align="middle">
-                  <Col xs={24} md={16}>
+                  <Col xs={24} md={18}>
                     <Space direction="vertical" size={0}>
                       <Text>{`WLE UART: ${wleUartPort || t.sensorIQC.uartNotDetected}`}</Text>
                       <Text>{`WBA UART: ${wbaUartPort || t.sensorIQC.uartNotDetected}`}</Text>
                     </Space>
                   </Col>
-                  <Col xs={24} md={8}>
+                  <Col xs={24} md={6}>
                     <Button
                       icon={<ScanOutlined />}
                       onClick={handleDetectUart}
@@ -843,27 +923,12 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                 </Row>
               </Card>
             </Col>
-            {Object.values(testResults).some(r => r !== null) && !testing && (
-              <Col xs={24} md={10} style={{ textAlign: 'right' }}>
-                <Space direction="vertical" size={2} align="end">
-                  <Title level={4} style={{ margin: 0 }}>{t.sensorIQC.summary}</Title>
-                  <Text>
-                    {t.sensorIQC.passed}: {passedCount} / {visibleTestItems.length}
-                  </Text>
-                  <Text>
-                    {t.sensorIQC.failed}: {failedCount} / {visibleTestItems.length}
-                  </Text>
-                  <Text strong>
-                    {t.sensorIQC.finalResult}: {' '}
-                    {allVisibleTestsPassed ? (
-                      <Tag icon={<CheckCircleOutlined />} color="success">{t.sensorIQC.pass}</Tag>
-                    ) : (
-                      <Tag icon={<CloseCircleOutlined />} color="error">{t.sensorIQC.fail}</Tag>
-                    )}
-                  </Text>
-                </Space>
-              </Col>
-            )}
+            <Col xs={24} md={6}>
+              <Space direction="vertical" size={4}>
+                <Title level={4} style={{ margin: 0 }}>{t.sensorIQC.testResultTitle}</Title>
+                <Text strong>{completedTestCount}/{testItems.length}</Text>
+              </Space>
+            </Col>
           </Row>
 
           <Row gutter={8} align="middle" wrap={false}>

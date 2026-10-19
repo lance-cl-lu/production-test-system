@@ -41,6 +41,11 @@ export const testRecordsAPI = {
   startSensorTest: (data) => api.post('/api/sensor/start-test', data),
   readSensorSerial: () => api.post('/api/sensor/read-serial'),
   detectSensorUart: () => api.post('/api/sensor/detect-uart', {}),
+  getSensorUartStatus: async () => {
+    const response = await fetch('http://127.0.0.1:8766/api/uart-status', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`UART status service returned HTTP ${response.status}`);
+    return { data: await response.json() };
+  },
   getSensorUartDetection: (requestId) => api.get(`/api/sensor/detect-uart/${requestId}`),
   getLatestSensorSerial: () => api.get('/api/sensor/serial-found/latest'),
   runSensorStage: (data) => api.post('/api/sensor/run-stage', data),

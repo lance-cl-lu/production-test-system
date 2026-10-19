@@ -125,6 +125,7 @@ export const translations = {
     // Sensor IQC
     sensorIQC: {
       title: '感測器進料檢驗測試',
+      testResultTitle: '測試結果',
       description: '感測器進料檢驗測試項目',
       uartDetectionTitle: 'WLE / WBA UART 偵測',
       uartDetectionHint: '按下偵測後，會使用 sensor_watcher 啟動時傳入的兩個 UART，透過 hvf_version 判斷各自連接的 MCU。偵測成功前無法讀取序號或執行測試。',
@@ -411,6 +412,7 @@ export const translations = {
     // Sensor IQC
     sensorIQC: {
       title: 'Sensor IQC Test',
+      testResultTitle: 'Test Result',
       description: 'Sensor Incoming Quality Control Test Items',
       uartDetectionTitle: 'WLE / WBA UART Detection',
       uartDetectionHint: '',
@@ -692,6 +694,7 @@ translations.vi = {
   sensorIQC: {
     ...translations.en.sensorIQC,
     title: 'Kiểm tra đầu vào cảm biến',
+    testResultTitle: 'Kết quả kiểm tra',
     description: 'Các hạng mục kiểm tra chất lượng đầu vào cảm biến',
     uartDetectionTitle: 'Phát hiện UART WLE / WBA',
     uartDetectionHint: 'Nhấn phát hiện để dùng hai cổng UART được truyền vào sensor_watcher khi khởi động và xác định MCU bằng hvf_version. Chưa thể đọc số sê-ri hoặc kiểm tra trước khi phát hiện thành công.',

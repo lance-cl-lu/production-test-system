@@ -7,7 +7,7 @@ else
 CC = x86_64-w64-mingw32-gcc
 endif
 CFLAGS := -O2 -Wall -Wextra -D_WIN32_WINNT=0x0601
-LDFLAGS := -lwinhttp
+LDFLAGS := -lwinhttp -lws2_32
 
 SOURCES := sensor_watcher.c uart_hvf.c uart_hvf_sensors.c \
            platform_windows.c platform_http_windows.c

@@ -20,6 +20,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 #include "platform_http.h"
 #include "platform_io.h"
 #include "uart_hvf.h"
@@ -51,6 +62,9 @@ static char api_serial_found_url[512] = API_SERIAL_FOUND_URL;
 static char api_uart_detection_result_url[512] = "http://localhost:8000/api/sensor/detect-uart/result";
 static char active_port_wle[256] = "";
 static char active_port_wba[256] = "";
+
+#define UART_STATUS_HOST "127.0.0.1"
+#define UART_STATUS_PORT 8766
 
 int post_json(const char *url, const char *json_payload);
 
@@ -106,6 +120,149 @@ static int detect_console_layout(const char **port, const char **port2) {
         printf("[UART] Console order normalized: %s=WLE, %s=WBA\n", *port, *port2);
     }
     consoles_detected = 1;
+    return 0;
+}
+
+#ifdef _WIN32
+typedef SOCKET uart_status_socket_t;
+#define UART_STATUS_INVALID_SOCKET INVALID_SOCKET
+#define uart_status_close_socket closesocket
+#define UART_STATUS_THREAD_ERROR 1
+static DWORD WINAPI uart_status_server_thread(LPVOID unused)
+#else
+typedef int uart_status_socket_t;
+#define UART_STATUS_INVALID_SOCKET (-1)
+#define uart_status_close_socket close
+#define UART_STATUS_THREAD_ERROR NULL
+static void *uart_status_server_thread(void *unused)
+#endif
+{
+    static const char *const allowed_origins[] = {
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:3001", "http://127.0.0.1:3001",
+    };
+    struct sockaddr_in address;
+    uart_status_socket_t server_socket;
+    (void)unused;
+
+#ifdef _WIN32
+    WSADATA winsock_data;
+    if (WSAStartup(MAKEWORD(2, 2), &winsock_data) != 0) {
+        fprintf(stderr, "[UART][STATUS] WSAStartup failed\n");
+        return UART_STATUS_THREAD_ERROR;
+    }
+#endif
+
+    server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (server_socket == UART_STATUS_INVALID_SOCKET) {
+        fprintf(stderr, "[UART][STATUS] Could not create status endpoint socket\n");
+        return UART_STATUS_THREAD_ERROR;
+    }
+
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(UART_STATUS_PORT);
+    address.sin_addr.s_addr = inet_addr(UART_STATUS_HOST);
+    if (bind(server_socket, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        listen(server_socket, 8) != 0) {
+        fprintf(stderr, "[UART][STATUS] Could not bind http://%s:%d\n",
+                UART_STATUS_HOST, UART_STATUS_PORT);
+        uart_status_close_socket(server_socket);
+#ifdef _WIN32
+        WSACleanup();
+        return 1;
+#else
+        return NULL;
+#endif
+    }
+    printf("[UART][STATUS] Listening on http://%s:%d/api/uart-status\n",
+           UART_STATUS_HOST, UART_STATUS_PORT);
+
+    while (keep_running) {
+        struct sockaddr_in client_address;
+#ifdef _WIN32
+        int client_address_size = sizeof(client_address);
+#else
+        socklen_t client_address_size = sizeof(client_address);
+#endif
+        uart_status_socket_t client_socket = accept(
+            server_socket, (struct sockaddr *)&client_address, &client_address_size);
+        char request[1024] = "";
+        char response[2048];
+        char origin[160] = "";
+        const char *cors_origin = "";
+        int received;
+        int response_length;
+
+        if (client_socket == UART_STATUS_INVALID_SOCKET) continue;
+        received = (int)recv(client_socket, request, (int)sizeof(request) - 1, 0);
+        if (received > 0) {
+            char *origin_header;
+            request[received] = '\0';
+            origin_header = strstr(request, "Origin: ");
+            if (origin_header != NULL) {
+                origin_header += strlen("Origin: ");
+                sscanf(origin_header, "%159[^\r\n]", origin);
+            }
+            for (size_t i = 0; i < sizeof(allowed_origins) / sizeof(allowed_origins[0]); ++i) {
+                if (strcmp(origin, allowed_origins[i]) == 0) {
+                    cors_origin = origin;
+                    break;
+                }
+            }
+
+            if (strncmp(request, "OPTIONS ", 8) == 0) {
+                response_length = snprintf(response, sizeof(response),
+                    "HTTP/1.1 204 No Content\r\n"
+                    "Access-Control-Allow-Origin: %s\r\n"
+                    "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+                    "Access-Control-Allow-Headers: Content-Type\r\n"
+                    "Vary: Origin\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+                    cors_origin);
+            } else if (strncmp(request, "GET /api/uart-status ", 21) == 0 ||
+                       strncmp(request, "GET /health ", 12) == 0) {
+                int detected = dual_uart_mode && consoles_detected;
+                char body[768];
+                snprintf(body, sizeof(body),
+                    "{\"status\":\"%s\",\"port_wle\":\"%s\",\"port_wba\":\"%s\"}",
+                    detected ? "success" : "failed",
+                    detected ? active_port_wle : "",
+                    detected ? active_port_wba : "");
+                response_length = snprintf(response, sizeof(response),
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                    "Cache-Control: no-store\r\nAccess-Control-Allow-Origin: %s\r\n"
+                    "Vary: Origin\r\nConnection: close\r\nContent-Length: %lu\r\n\r\n%s",
+                    cors_origin, (unsigned long)strlen(body), body);
+            } else {
+                static const char not_found[] = "{\"error\":\"not found\"}";
+                response_length = snprintf(response, sizeof(response),
+                    "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n"
+                    "Connection: close\r\nContent-Length: %lu\r\n\r\n%s",
+                    (unsigned long)(sizeof(not_found) - 1), not_found);
+            }
+            if (response_length > 0) (void)send(client_socket, response, response_length, 0);
+        }
+        uart_status_close_socket(client_socket);
+    }
+    uart_status_close_socket(server_socket);
+#ifdef _WIN32
+    WSACleanup();
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+static int start_uart_status_server(void) {
+#ifdef _WIN32
+    HANDLE thread = CreateThread(NULL, 0, uart_status_server_thread, NULL, 0, NULL);
+    if (thread == NULL) return -1;
+    CloseHandle(thread);
+#else
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, uart_status_server_thread, NULL) != 0) return -1;
+    pthread_detach(thread);
+#endif
     return 0;
 }
 
@@ -811,6 +968,9 @@ int main(int argc, char **argv) {
     }
 
     platform_http_init();
+    if (start_uart_status_server() != 0) {
+        fprintf(stderr, "[UART][STATUS] Failed to start local UART status endpoint\n");
+    }
 
     printf("========================================\n");
     printf("Sensor IQC 監看程式\n");

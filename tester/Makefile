@@ -12,7 +12,7 @@ ifneq ($(CURL_LIBDIR),)
   LDFLAGS += -L"$(CURL_LIBDIR)"
 endif
 
-LDFLAGS += -lcurl
+LDFLAGS += -lcurl -pthread
 
 TARGETS := pcba_watcher sensor_watcher uart_hvf_probe
 
