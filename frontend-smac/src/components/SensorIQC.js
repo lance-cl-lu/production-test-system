@@ -34,6 +34,11 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [testing, setTesting] = useState(false);
   const [runningStage, setRunningStage] = useState(null);
   const [readingSerial, setReadingSerial] = useState(false);
+  const [wleUartPort, setWleUartPort] = useState('');
+  const [wbaUartPort, setWbaUartPort] = useState('');
+  const [detectingUart, setDetectingUart] = useState(false);
+  const [uartDetected, setUartDetected] = useState(false);
+  const [uartDetectionLogs, setUartDetectionLogs] = useState([]);
   const readTimeoutRef = useRef(null);
   const serialPollRef = useRef(null);
   const stageTimeoutRef = useRef(null);
@@ -68,10 +73,6 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     temperature: 0,
     pressure: 0,
   });
-
-  // WebSocket 必須常駐，不能因序號 state 改變而重連；否則快速測項的
-  // pass/detail 可能落在關閉與重連之間。Handler 一律讀取最新 ref。
-  serialWleRef.current = serialWle;
 
   const testItems = [
     { key: 'getSensorIC', name: t.sensorIQC.getSensorIC, icon: '🔌' },
@@ -369,6 +370,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   }, [t, requestManualConfirmation]);
 
   const handleReadSerial = async () => {
+    if (!uartDetected || testing || detectingUart) return;
     // 重新讀序號時，先把先前測試狀態全部清掉，避免沿用舊的 PASS/FAIL
     resetTest();
     setRunningStage(null);
@@ -434,7 +436,61 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     }, 500);
   };
 
+  const handleDetectUart = async () => {
+    if (testing || readingSerial || runningStage !== null || detectingUart) return;
+    const appendLog = (entry) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setUartDetectionLogs((current) => [...current, `[${timestamp}] ${entry}`].slice(-100));
+    };
+
+    setDetectingUart(true);
+    setUartDetected(false);
+    setWleUartPort('');
+    setWbaUartPort('');
+    setSerialWle('');
+    setSerialWba('');
+    setCurrentRunId(null);
+    resetTest();
+    appendLog(t.sensorIQC.uartDetectionStarted);
+    try {
+      const trigger = await testRecordsAPI.detectSensorUart();
+      const requestId = trigger.data.request_id;
+      const deadline = Date.now() + 20000;
+      let result = null;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const response = await testRecordsAPI.getSensorUartDetection(requestId);
+        if (response.data.status !== 'pending') {
+          result = response.data;
+          break;
+        }
+      }
+
+      if (result?.status === 'success') {
+        setWleUartPort(result.port_wle);
+        setWbaUartPort(result.port_wba);
+        setUartDetected(true);
+        appendLog(t.sensorIQC.uartDetectionSuccess);
+        appendLog(`WLE: ${result.port_wle} | WBA: ${result.port_wba}`);
+        message.success(t.sensorIQC.uartDetectionSuccess);
+      } else {
+        const failureMessage = result?.status === 'failed'
+          ? t.sensorIQC.uartDetectionFailed
+          : t.sensorIQC.uartDetectionTimeout;
+        appendLog(failureMessage);
+        message.error(failureMessage);
+      }
+    } catch (error) {
+      console.error('Failed to detect Sensor IQC UART ports:', error);
+      appendLog(`${t.sensorIQC.uartDetectionFailed}: ${error.message}`);
+      message.error(t.sensorIQC.uartDetectionFailed);
+    } finally {
+      setDetectingUart(false);
+    }
+  };
+
   const runSingleStage = async (stageKey) => {
+    if (!uartDetected || testing || detectingUart) return;
     const sn = serialWle.trim();
     if (!sn) return;
 
@@ -580,6 +636,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   };
 
   const startTest = async () => {
+    if (!uartDetected || detectingUart || readingSerial) return;
     const sn = serialWle.trim();
     if (!sn) return;
 
@@ -754,10 +811,37 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     <div>
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <Row justify="space-between" align="top" gutter={[24, 16]}>
-            <Col xs={24} md={14}>
+          <Row justify="space-between" align="top" gutter={[16, 16]}>
+            <Col xs={24} md={12}>
               <Title level={2}>{t.sensorIQC.title}</Title>
               <Text type="secondary">{t.sensorIQC.description}</Text>
+            </Col>
+            <Col xs={24} md={12}>
+              <Card
+                size="small"
+                title={t.sensorIQC.uartDetectionTitle}
+                styles={{ header: { minHeight: 36, padding: '0 12px' }, body: { padding: 12 } }}
+              >
+                <Row gutter={[8, 4]} align="middle">
+                  <Col xs={24} md={16}>
+                    <Space direction="vertical" size={0}>
+                      <Text>{`WLE UART: ${wleUartPort || t.sensorIQC.uartNotDetected}`}</Text>
+                      <Text>{`WBA UART: ${wbaUartPort || t.sensorIQC.uartNotDetected}`}</Text>
+                    </Space>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Button
+                      icon={<ScanOutlined />}
+                      onClick={handleDetectUart}
+                      loading={detectingUart}
+                      disabled={testing || readingSerial || runningStage !== null || detectingUart}
+                      block
+                    >
+                      {detectingUart ? t.sensorIQC.detectingUart : t.sensorIQC.detectUart}
+                    </Button>
+                  </Col>
+                </Row>
+              </Card>
             </Col>
             {Object.values(testResults).some(r => r !== null) && !testing && (
               <Col xs={24} md={10} style={{ textAlign: 'right' }}>
@@ -789,6 +873,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                 placeholder={t.sensorIQC.enterSerialNumber}
                 value={serialWle}
                 onChange={(e) => setSerialWle(e.target.value)}
+                disabled={!uartDetected || testing || detectingUart}
               />
             </Col>
             <Col flex="1 1 0">
@@ -797,6 +882,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                 placeholder={t.sensorIQC.enterSerialNumber}
                 value={serialWba}
                 onChange={(e) => setSerialWba(e.target.value)}
+                disabled={!uartDetected || testing || detectingUart}
               />
             </Col>
             <Col flex="none">
@@ -804,7 +890,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                 icon={<ScanOutlined />}
                 onClick={handleReadSerial}
                 loading={readingSerial}
-                disabled={testing}
+                disabled={!uartDetected || testing || detectingUart}
               >
                 {t.sensorIQC.readSerial}
               </Button>
@@ -816,7 +902,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                 icon={<PlayCircleOutlined />}
                 onClick={startTest}
                 loading={testing}
-                disabled={!serialWle.trim() || readingSerial || runningStage !== null}
+                disabled={!uartDetected || !serialWle.trim() || readingSerial || runningStage !== null || detectingUart}
               >
                 {t.sensorIQC.startTest}
               </Button>
@@ -825,7 +911,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
         </Space>
       </Card>
 
-      <Card style={{ marginTop: 24 }} title={t.sensorIQC.testItems}>
+      <Card style={{ marginTop: 24 }}>
         <Row gutter={[8, 8]}>
           {[visibleTestItems.filter((item) => ['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key)),
             visibleTestItems.filter((item) => !['getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690'].includes(item.key))]
@@ -851,7 +937,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                             <Button
                               size="small"
                               onClick={() => runSingleStage(item.key)}
-                              disabled={!serialWle.trim() || testing || runningStage !== null}
+                              disabled={!uartDetected || !serialWle.trim() || testing || runningStage !== null || detectingUart}
                             >
                               {t.sensorIQC.testSingle}
                             </Button>
@@ -861,7 +947,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
                               <Button
                                 size="small"
                                 onClick={() => runSingleStage(item.key)}
-                                disabled={!serialWle.trim() || testing || runningStage !== null}
+                                disabled={!uartDetected || !serialWle.trim() || testing || runningStage !== null || detectingUart}
                               >
                                 {t.sensorIQC.retest}
                               </Button>
@@ -877,6 +963,29 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
               </Col>
             ))}
         </Row>
+      </Card>
+
+      <Card style={{ marginTop: 24 }} title={t.sensorIQC.uartDetectionLogTitle}>
+        <div
+          role="log"
+          aria-live="polite"
+          style={{
+            height: 160,
+            overflowY: 'auto',
+            padding: 12,
+            background: '#101418',
+            color: '#d7e0e8',
+            borderRadius: 4,
+            fontFamily: 'monospace',
+            fontSize: 12,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {uartDetectionLogs.length
+            ? uartDetectionLogs.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)
+            : t.sensorIQC.uartDetectionLogEmpty}
+        </div>
       </Card>
 
     </div>

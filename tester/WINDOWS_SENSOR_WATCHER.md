@@ -31,6 +31,18 @@ Select explicitly in that case:
 sensor_watcher.exe --port COM5
 ```
 
+When WLE and WBA are connected to separate UARTs, pass both ports. `--port` is the WLE
+console and `--port2` is the WBA console; `SEARCH` reads each MCU's `stm32_id_info`
+directly, without IPC passthrough:
+
+```powershell
+sensor_watcher.exe --port COM5 --port2 COM6
+```
+
+At startup, the watcher runs `hvf_version` once on each configured UART and identifies
+the MCU from the response. With two ports, it normalizes the port order automatically;
+if both consoles cannot be identified as one WLE and one WBA, serial search is disabled.
+
 Windows accepts `COM1` through `COM256`; the platform adapter automatically converts them
 to the Win32 `\\.\COMx` device path. Use Device Manager or this PowerShell command to
 identify USB VID, PID and PNP identity:

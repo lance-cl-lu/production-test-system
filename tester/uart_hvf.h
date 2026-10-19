@@ -22,8 +22,12 @@ void uart_hvf_close(platform_uart_t uart);
 // 丟棄累積的輸入（例如換板子時的開機訊息），等到連續 idle_ms 無資料為止
 void uart_hvf_flush_input(platform_uart_t uart, int idle_ms);
 
+// 執行一次 hvf_version 並從版本 payload 偵測 console 上的 WLE/WBA MCU
+// 成功回傳 0 並寫入 mcu，失敗或無法辨識回傳 -1
+int uart_hvf_detect_mcu(platform_uart_t uart, char *mcu, size_t mcu_len);
+
 // 讀取 STM32 unique device ID
-// passthrough = 0 讀 WLE；= 1 進 passthrough 讀 WBA
+// passthrough = 0 直接從傳入 UART 的 console 讀取；= 1 從 WLE console 進 IPC passthrough 讀 WBA
 // 成功回 0，失敗回 -1
 int uart_hvf_read_stm32_id(platform_uart_t uart, int passthrough, char *out, size_t out_len);
 

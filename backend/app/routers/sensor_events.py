@@ -24,6 +24,9 @@ latest_sensor_serials: Optional[Dict[str, str]] = None
 active_sensor_run_ids: Dict[str, int] = {}
 pending_read_started_at: Optional[datetime] = None
 stage_request_states: Dict[str, Dict[str, Any]] = {}
+uart_detection_requests: Dict[str, Dict[str, Any]] = {}
+uart_detection_succeeded = False
+active_uart_detection_request_id: Optional[str] = None
 
 SENSOR_RESULT_STAGES = [
     "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
@@ -113,6 +116,77 @@ class RunStageRequest(BaseModel):
     stage: SensorStage
 
 
+class UartDetectionRequest(BaseModel):
+    pass
+
+
+class UartDetectionResult(BaseModel):
+    request_id: str
+    status: Literal["success", "failed"]
+    port_wle: str
+    port_wba: str
+
+
+def _require_uart_detection() -> None:
+    if not uart_detection_succeeded:
+        raise HTTPException(
+            status_code=409,
+            detail="Detect and identify both WLE and WBA UART ports before testing.",
+        )
+
+
+@router.post("/detect-uart")
+async def detect_uart_ports(request: UartDetectionRequest):
+    global uart_detection_succeeded, active_uart_detection_request_id
+    request_id = str(uuid.uuid4())
+    uart_detection_succeeded = False
+    active_uart_detection_request_id = request_id
+    uart_detection_requests[request_id] = {
+        "request_id": request_id,
+        "status": "pending",
+        "port_wle": "",
+        "port_wba": "",
+    }
+    try:
+        os.makedirs(os.path.dirname(SHARED_FILE_PATH), exist_ok=True)
+        with open(SHARED_FILE_PATH, "w") as f:
+            f.write(f"DETECT {request_id}\n{datetime.now().isoformat()}\n")
+        return {"status": "pending", "request_id": request_id}
+    except Exception as e:
+        uart_detection_requests[request_id]["status"] = "failed"
+        logger.exception("Failed to trigger UART detection: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to trigger UART detection")
+
+
+@router.get("/detect-uart/{request_id}")
+async def get_uart_detection_result(request_id: str):
+    result = uart_detection_requests.get(request_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="UART detection request not found")
+    if request_id != active_uart_detection_request_id:
+        return {**result, "status": "superseded"}
+    return result
+
+
+@router.post("/detect-uart/result")
+async def report_uart_detection_result(result: UartDetectionResult):
+    global uart_detection_succeeded
+    request_state = uart_detection_requests.get(result.request_id)
+    if request_state is None:
+        raise HTTPException(status_code=404, detail="UART detection request not found")
+    if result.status == "success" and (not result.port_wle or not result.port_wba or
+                                        result.port_wle == result.port_wba):
+        raise HTTPException(status_code=422, detail="UART detection must identify two distinct ports")
+    request_state.update({
+        "status": result.status,
+        "port_wle": result.port_wle,
+        "port_wba": result.port_wba,
+    })
+    if result.request_id == active_uart_detection_request_id and result.status == "success":
+        uart_detection_succeeded = True
+    return {"status": "accepted"}
+
+
 @router.post("/run-stage")
 async def run_sensor_stage(request: RunStageRequest):
     """
@@ -121,6 +195,7 @@ async def run_sensor_stage(request: RunStageRequest):
     serial = (request.serial or "").strip()
     if not serial:
         raise HTTPException(status_code=400, detail="serial is required")
+    _require_uart_detection()
 
     logger.info(f"[Sensor:/run-stage] {request.stage} for serial: {serial}")
 
@@ -157,6 +232,7 @@ async def read_sensor_serial():
     結果由 watcher POST 回 /serial-found，再廣播給前端。
     """
     logger.info("[Sensor:/read-serial] Read serial request received")
+    _require_uart_detection()
 
     try:
         global latest_sensor_serials, pending_read_started_at
@@ -250,6 +326,7 @@ async def start_sensor_test(request: StartTestRequest):
     serial = (request.serial or "").strip()
     if not serial:
         raise HTTPException(status_code=400, detail="serial is required")
+    _require_uart_detection()
 
     logger.info(f"[Sensor:/start-test] Starting test for serial: {serial}")
 

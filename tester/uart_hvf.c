@@ -208,6 +208,29 @@ static int extract_hvf_payload(const char *response, char *out, size_t out_len) 
     return 0;
 }
 
+static int contains_case_insensitive(const char *text, const char *needle) {
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0U) {
+        return 1;
+    }
+
+    for (; *text != '\0'; ++text) {
+        size_t i;
+        for (i = 0; i < needle_len; ++i) {
+            unsigned char left = (unsigned char)text[i];
+            unsigned char right = (unsigned char)needle[i];
+            if (left == '\0' || (left >= 'a' && left <= 'z' ? left - ('a' - 'A') : left) !=
+                                     (right >= 'a' && right <= 'z' ? right - ('a' - 'A') : right)) {
+                break;
+            }
+        }
+        if (i == needle_len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 platform_uart_t uart_hvf_open(const char *port) {
     platform_uart_t uart = platform_uart_open(port, SERIAL_BAUD);
     if (uart == PLATFORM_UART_INVALID) return PLATFORM_UART_INVALID;
@@ -227,6 +250,53 @@ void uart_hvf_flush_input(platform_uart_t uart, int idle_ms) {
     (void)drain_until_idle(uart, idle_ms);
     platform_uart_flush_input(uart);
     debug_print("[debug] input flushed (idle %d ms)\n", idle_ms);
+}
+
+int uart_hvf_detect_mcu(platform_uart_t uart, char *mcu, size_t mcu_len) {
+    char after_enter[256];
+    char response[1024];
+    char payload[256];
+    char *separator;
+
+    if (mcu == NULL || mcu_len == 0U || uart == PLATFORM_UART_INVALID) {
+        return -1;
+    }
+    mcu[0] = '\0';
+
+    if (drain_until_idle(uart, IDLE_MS) != 0) {
+        return -1;
+    }
+    write_all(uart, "\r");
+    platform_sleep_ms(WAIT_MS);
+    memset(after_enter, 0, sizeof(after_enter));
+    (void)read_to_buffer(uart, after_enter, sizeof(after_enter), 200);
+
+    if (send_command_collect(uart, "hvf_version", response, sizeof(response), 1500) != 0 ||
+        strstr(response, "<[OK]>") == NULL ||
+        extract_hvf_payload(response, payload, sizeof(payload)) != 0) {
+        debug_print("[debug] hvf_version did not provide a valid MCU response: %s\n", response);
+        return -1;
+    }
+
+    separator = strchr(payload, '-');
+    if (separator == NULL || separator[1] == '\0') {
+        debug_print("[debug] hvf_version payload has no MCU suffix: %s\n", payload);
+        return -1;
+    }
+    separator++;
+    if (contains_case_insensitive(separator, "WLE") ||
+        contains_case_insensitive(separator, "MLE")) {
+        snprintf(mcu, mcu_len, "%s", "WLE");
+    } else if (contains_case_insensitive(separator, "WBA") ||
+               contains_case_insensitive(separator, "MBA")) {
+        snprintf(mcu, mcu_len, "%s", "WBA");
+    } else {
+        debug_print("[debug] unrecognized MCU suffix in hvf_version payload: %s\n", payload);
+        return -1;
+    }
+
+    debug_print("[debug] detected %s console from hvf_version payload: %s\n", mcu, payload);
+    return 0;
 }
 
 static int read_stm32_id_direct(platform_uart_t uart, char *out, size_t out_len) {

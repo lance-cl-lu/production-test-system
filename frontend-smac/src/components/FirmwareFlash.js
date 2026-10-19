@@ -10,9 +10,10 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
   const t = translations[language];
   const copy = mode === 'diagnostics' ? t.diagnosticsFlash : t.firmwareFlash;
   const secondaryMcu = mode === 'diagnostics' ? 'WL' : 'WLE';
+  const requiresSerialNumber = mode === 'diagnostics';
   const [wbaId, setWbaId] = useState('');
   const [secondaryId, setSecondaryId] = useState('');
-  const [diagnosticsSerial, setDiagnosticsSerial] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
   const [flashing, setFlashing] = useState(false);
   const [result, setResult] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -23,6 +24,8 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
   }, [logs]);
 
   const handleStart = async () => {
+    if (requiresSerialNumber && !/^\d{8}$/.test(serialNumber)) return;
+
     setWbaId('');
     setSecondaryId('');
     setLogs([]);
@@ -30,6 +33,21 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
     setFlashing(true);
 
     try {
+      const firmwareType = mode === 'diagnostics' ? 'diagnostics' : 'test';
+      if (requiresSerialNumber) {
+        let flashCounts;
+        try {
+          ({ data: flashCounts } = await testRecordsAPI.getFirmwareFlashCounts(serialNumber));
+        } catch {
+          throw new Error(copy.historyCheckFailed);
+        }
+
+        const previousCount = flashCounts[`${firmwareType}_firmware_count`];
+        if (previousCount > 0 && !window.confirm(copy.alreadyFlashed.replace('{count}', String(previousCount)))) {
+          return;
+        }
+      }
+
       const response = await testRecordsAPI.flashFirmware(mode);
       if (!response.ok) {
         const errorBody = await response.text();
@@ -64,6 +82,18 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
       }
       if (buffer) appendLine(buffer);
       if (exitCode !== 0) throw new Error(copy.failed);
+
+      if (requiresSerialNumber) {
+        try {
+          await testRecordsAPI.recordFirmwareFlashSuccess(serialNumber, firmwareType);
+        } catch {
+          setResult('error');
+          setLogs((current) => [...current, copy.recordFailed]);
+          message.error(copy.recordFailed);
+          return;
+        }
+      }
+
       setResult('success');
       message.success(copy.success);
     } catch (error) {
@@ -87,30 +117,30 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
 
       <Card>
         <Row gutter={[12, 12]} align="middle">
-          {mode === 'diagnostics' && (
+          {requiresSerialNumber && (
             <Col xs={24} md={6}>
               <Input
                 addonBefore={copy.serialNumberLabel}
-                value={diagnosticsSerial}
+                value={serialNumber}
                 placeholder={copy.serialNumberPlaceholder}
                 inputMode="numeric"
                 maxLength={8}
-                onChange={(event) => setDiagnosticsSerial(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                onChange={(event) => setSerialNumber(event.target.value.replace(/\D/g, '').slice(0, 8))}
               />
             </Col>
           )}
-          <Col xs={24} md={mode === 'diagnostics' ? 6 : 10}>
+          <Col xs={24} md={requiresSerialNumber ? 6 : 8}>
             <Input addonBefore="WBA" value={wbaId} placeholder={copy.idPlaceholder} readOnly />
           </Col>
-          <Col xs={24} md={mode === 'diagnostics' ? 6 : 10}>
+          <Col xs={24} md={requiresSerialNumber ? 6 : 8}>
             <Input addonBefore={secondaryMcu} value={secondaryId} placeholder={copy.idPlaceholder} readOnly />
           </Col>
-          <Col xs={24} md={mode === 'diagnostics' ? 6 : 4} style={{ textAlign: 'right' }}>
+          <Col xs={24} md={requiresSerialNumber ? 6 : 8} style={{ textAlign: 'right' }}>
             <Button
               type="primary"
               icon={<PlayCircleOutlined />}
               loading={flashing}
-              disabled={flashing || (mode === 'diagnostics' && !/^\d{8}$/.test(diagnosticsSerial))}
+              disabled={flashing || (requiresSerialNumber && !/^\d{8}$/.test(serialNumber))}
               onClick={handleStart}
               block
             >

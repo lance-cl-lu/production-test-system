@@ -59,6 +59,21 @@ class CloudUploadLog(Base):
         return f"<CloudUploadLog {self.upload_time} - {self.status}>"
 
 
+class FirmwareFlashCount(Base):
+    """Successful firmware flash counts grouped by the entered 8-digit number."""
+    __tablename__ = "firmware_flash_counts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    serial_number = Column(String(8), unique=True, nullable=False, index=True, comment="8-digit number")
+    test_firmware_count = Column(Integer, nullable=False, default=0, comment="Test Firmware successful flashes")
+    diagnostics_firmware_count = Column(Integer, nullable=False, default=0, comment="Diagnostics Firmware successful flashes")
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<FirmwareFlashCount {self.serial_number}: test={self.test_firmware_count}, diagnostics={self.diagnostics_firmware_count}>"
+
+
 class SensorTestRun(Base):
     """一次完整或單項 Sensor IQC 執行。"""
     __tablename__ = "sensor_test_runs"

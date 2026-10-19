@@ -138,11 +138,18 @@ cd tester
 make sensor_watcher
 ./sensor_watcher
 
+# WLE 與 WBA 各自接到獨立 UART 時，SEARCH 直接使用兩邊的 console 讀取序號
+./sensor_watcher --port /dev/tty.usbserial-WLE --port2 /dev/tty.usbserial-WBA
+
 # 沒有實際硬體時，不會開啟 UART，並產生模擬序號與通過的測試資料
 ./sensor_watcher --simulate
 ```
 
 `--simulate` 會保留共享檔案與 HTTP/WebSocket 的完整流程，只將 UART 硬體交互換成模擬資料，適合本機開發與前後端整合測試。
+
+指定一個 UART 時維持舊流程：`--port` 連接 WLE，讀 WBA 序號時透過 IPC passthrough。若兩顆 MCU 各有獨立 UART，使用 `--port` 指定 WLE、`--port2` 指定 WBA；`SEARCH` 會在各自 console 直接下 `stm32_id_info`，不使用 IPC passthrough。Windows 雙 UART 也請明確指定兩個連接埠，例如 `--port COM5 --port2 COM6`。
+
+硬體模式啟動後、開始監看指令前，watcher 會在每個已設定的 UART 各執行一次 `hvf_version`，以回應 payload 的 MCU 名稱辨識 WLE/WBA（韌體後綴 `mle` 對應 WLE，`mba` 對應 WBA），並記住 UART 對應。雙 UART 即使參數順序相反也會自動調整；無法辨識或兩個 UART 回報相同 MCU 時會停用 `SEARCH`，避免回報錯誤序號。這次啟動辨識結果會沿用到 watcher 結束，不會每次 SEARCH 重跑版本查詢。
 
 > 必須在 `tester/` 目錄下執行，程式以相對路徑 `../shared/sensor_test.txt` 監看指令。
 

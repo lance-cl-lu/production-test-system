@@ -3,11 +3,11 @@
  *
  * Sensor IQC 測試監看程式
  *
- * 序號讀取與 Sensor/HVF 測試均串接 UART
+ * 序號讀取與 Sensor/HVF 測試均串接 UART；可為 WLE/WBA 各指定獨立 UART
  * serial port 在啟動時開一次並常駐，避免反覆開關 tty 造成裝置重置
  *
  * 編譯：make sensor_watcher
- * 執行：cd tester && ./sensor_watcher [--port /dev/ttyX] [--debug] [--simulate]
+ * 執行：cd tester && ./sensor_watcher [--port WLE_UART] [--port2 WBA_UART] [--debug] [--simulate]
  *
  * 流程：
  *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "SEARCH" 或 "TEST <SERIAL>"
@@ -38,6 +38,9 @@
 #define BOARD_SWAP_IDLE_MS 800
 
 static platform_uart_t uart_fd = PLATFORM_UART_INVALID;
+static platform_uart_t uart_fd2 = PLATFORM_UART_INVALID;
+static int dual_uart_mode = 0;
+static int consoles_detected = 0;
 static platform_lock_t watcher_lock = {.value = -1};
 static int simulate_mode = 0;
 static volatile sig_atomic_t keep_running = 1;
@@ -45,6 +48,11 @@ static const char *command_file = SHARED_FILE;
 static const char *lock_file = WATCHER_LOCK_FILE;
 static char api_events_url[512] = API_EVENTS_URL;
 static char api_serial_found_url[512] = API_SERIAL_FOUND_URL;
+static char api_uart_detection_result_url[512] = "http://localhost:8000/api/sensor/detect-uart/result";
+static char active_port_wle[256] = "";
+static char active_port_wba[256] = "";
+
+int post_json(const char *url, const char *json_payload);
 
 static void handle_signal(int signum) {
     (void)signum;
@@ -61,6 +69,78 @@ static uart_hvf_sensor_result_t last_sensor_probe;
 static char last_serial_wba[128] = "";
 static char sensor_probe_serial[128] = "";
 static int sensor_probe_valid = 0;
+
+static int detect_console_layout(const char **port, const char **port2) {
+    char mcu1[8] = "";
+    char mcu2[8] = "";
+    int detected1 = uart_hvf_detect_mcu(uart_fd, mcu1, sizeof(mcu1)) == 0;
+    consoles_detected = 0;
+
+    if (!dual_uart_mode) {
+        if (detected1 && strcmp(mcu1, "WLE") == 0) {
+            consoles_detected = 1;
+            printf("[UART] %s detected as WLE; legacy WBA IPC passthrough enabled\n", *port);
+            return 0;
+        } else {
+            fprintf(stderr, "[UART][ERROR] Expected WLE console on %s, detected %s; SEARCH is disabled\n",
+                    *port, detected1 ? mcu1 : "unknown");
+            return -1;
+        }
+    }
+
+    int detected2 = uart_hvf_detect_mcu(uart_fd2, mcu2, sizeof(mcu2)) == 0;
+    printf("[UART] %s: %s; %s: %s\n", *port, detected1 ? mcu1 : "unknown",
+           *port2, detected2 ? mcu2 : "unknown");
+
+    if (!detected1 || !detected2 || strcmp(mcu1, mcu2) == 0) {
+        fprintf(stderr, "[UART][ERROR] Two distinct WLE/WBA consoles were not detected; SEARCH is disabled\n");
+        return -1;
+    }
+    if (strcmp(mcu1, "WBA") == 0) {
+        platform_uart_t uart_tmp = uart_fd;
+        const char *port_tmp = *port;
+        uart_fd = uart_fd2;
+        uart_fd2 = uart_tmp;
+        *port = *port2;
+        *port2 = port_tmp;
+        printf("[UART] Console order normalized: %s=WLE, %s=WBA\n", *port, *port2);
+    }
+    consoles_detected = 1;
+    return 0;
+}
+
+static void handle_detect_command(const char *request_id) {
+    const char *detected_port_wle = active_port_wle;
+    const char *detected_port_wba = active_port_wba;
+    char payload[768];
+    int result = -1;
+
+    printf("\n[UART] Detecting MCU types on startup UARTs %s and %s...\n",
+           active_port_wle, active_port_wba);
+    if (dual_uart_mode && uart_fd != PLATFORM_UART_INVALID &&
+        uart_fd2 != PLATFORM_UART_INVALID) {
+        result = detect_console_layout(&detected_port_wle, &detected_port_wba);
+        if (result == 0) {
+            snprintf(active_port_wle, sizeof(active_port_wle), "%s", detected_port_wle);
+            snprintf(active_port_wba, sizeof(active_port_wba), "%s", detected_port_wba);
+        }
+    } else {
+        fprintf(stderr, "[UART][ERROR] Start sensor_watcher with both --port and --port2 before detection\n");
+    }
+    snprintf(payload, sizeof(payload),
+             "{\"request_id\":\"%s\",\"status\":\"%s\",\"port_wle\":\"%s\",\"port_wba\":\"%s\"}",
+             request_id, result == 0 ? "success" : "failed",
+             result == 0 ? active_port_wle : "", result == 0 ? active_port_wba : "");
+    if (post_json(api_uart_detection_result_url, payload) != 0) {
+        fprintf(stderr, "[UART][ERROR] Failed to report UART detection result\n");
+    }
+    if (result == 0) {
+         printf("[UART] Detection successful: WLE=%s, WBA=%s\n\n",
+             active_port_wle, active_port_wba);
+    } else {
+        printf("[UART] Detection failed; testing remains disabled\n\n");
+    }
+}
 
 static const char *pass_or_fail(double pass_ratio) {
     double r = (double)rand() / (double)RAND_MAX;
@@ -414,6 +494,10 @@ void handle_search_command(void) {
         snprintf(serial_wle, sizeof(serial_wle), "SIM-WLE-%ld", (long)time(NULL));
         snprintf(serial_wba, sizeof(serial_wba), "SIM-WBA-%ld", (long)time(NULL));
     } else {
+        if (!consoles_detected) {
+            printf("\n[SEARCH] MCU consoles were not identified at startup; cannot safely read serials\n\n");
+            return;
+        }
         if (uart_fd == PLATFORM_UART_INVALID) {
             printf("\n[SEARCH] UART unavailable; cannot read serials\n\n");
             return;
@@ -422,6 +506,9 @@ void handle_search_command(void) {
         printf("\n[SEARCH] Flushing UART input...\n");
         // 換板子時裝置會吐一段開機訊息，先清乾淨再下指令
         uart_hvf_flush_input(uart_fd, BOARD_SWAP_IDLE_MS);
+        if (dual_uart_mode && uart_fd2 != PLATFORM_UART_INVALID) {
+            uart_hvf_flush_input(uart_fd2, BOARD_SWAP_IDLE_MS);
+        }
         printf("[SEARCH] Reading serials from device...\n");
 
         if (uart_hvf_read_stm32_id(uart_fd, 0, serial_wle, sizeof(serial_wle)) != 0) {
@@ -430,7 +517,10 @@ void handle_search_command(void) {
         }
         printf("[SEARCH] WLE = %s\n", serial_wle);
 
-        if (uart_hvf_read_stm32_id(uart_fd, 1, serial_wba, sizeof(serial_wba)) != 0) {
+        platform_uart_t wba_uart = dual_uart_mode ? uart_fd2 : uart_fd;
+        int wba_passthrough = dual_uart_mode ? 0 : 1;
+        if (wba_uart == PLATFORM_UART_INVALID ||
+            uart_hvf_read_stm32_id(wba_uart, wba_passthrough, serial_wba, sizeof(serial_wba)) != 0) {
             printf("[SEARCH] Failed to read WBA serial\n\n");
             return;
         }
@@ -567,9 +657,10 @@ static int is_valid_stage(const char *stage) {
 }
 
 void process_command(const char *line) {
-    char clean_line[256];
+    char clean_line[1024];
     char serial[128];
     char stage[64];
+    char request_id[40];
 
     strncpy(clean_line, line, sizeof(clean_line) - 1);
     clean_line[sizeof(clean_line) - 1] = '\0';
@@ -579,7 +670,16 @@ void process_command(const char *line) {
         return;
     }
 
+    if (sscanf(clean_line, "DETECT %39s", request_id) == 1) {
+        handle_detect_command(request_id);
+        return;
+    }
+
     if (sscanf(clean_line, "STAGE %63s %127s", stage, serial) == 2) {
+        if (!simulate_mode && !consoles_detected) {
+            fprintf(stderr, "[UART][ERROR] Refusing test: WLE/WBA UART detection has not succeeded\n");
+            return;
+        }
         if (!is_valid_stage(stage)) {
             printf("[WARN] Unknown stage: %s\n", stage);
             return;
@@ -592,6 +692,10 @@ void process_command(const char *line) {
         }
         printf("\n");
     } else if (sscanf(clean_line, "TEST %127s", serial) == 1) {
+        if (!simulate_mode && !consoles_detected) {
+            fprintf(stderr, "[UART][ERROR] Refusing test: WLE/WBA UART detection has not succeeded\n");
+            return;
+        }
         handle_test_command(serial);
     } else if (strncmp(clean_line, "SEARCH", 6) == 0) {
         handle_search_command();
@@ -601,10 +705,11 @@ void process_command(const char *line) {
 }
 
 static void print_usage(const char *prog) {
-    fprintf(stderr, "usage: %s [--port PORT|auto] [--list-ports] [--command-file PATH] "
+    fprintf(stderr, "usage: %s [--port PORT|auto] [--port2 PORT] [--list-ports] [--command-file PATH] "
                     "[--lock-file PATH] [--api-base-url URL] [--debug] [--simulate]\n", prog);
     fprintf(stderr, "  --port   serial port (default: %s); auto requires exactly one candidate\n",
             UART_HVF_DEFAULT_PORT);
+    fprintf(stderr, "  --port2  optional second MCU UART; with --port, SEARCH reads WLE/WBA directly\n");
     fprintf(stderr, "  --list-ports  list detected serial ports and exit\n");
     fprintf(stderr, "  --simulate  run without UART hardware and generate passing test data\n");
 }
@@ -618,12 +723,16 @@ static int print_uart_ports(char ports[][128], int max_ports) {
 
 int main(int argc, char **argv) {
     const char *port = UART_HVF_DEFAULT_PORT;
+    const char *port2 = NULL;
     char detected_ports[64][128];
     int list_ports = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = argv[++i];
+        } else if (strcmp(argv[i], "--port2") == 0 && i + 1 < argc) {
+            port2 = argv[++i];
+            dual_uart_mode = 1;
         } else if (strcmp(argv[i], "--list-ports") == 0) {
             list_ports = 1;
         } else if (strcmp(argv[i], "--command-file") == 0 && i + 1 < argc) {
@@ -635,6 +744,8 @@ int main(int argc, char **argv) {
             snprintf(api_events_url, sizeof(api_events_url), "%s/api/sensor/events", base);
             snprintf(api_serial_found_url, sizeof(api_serial_found_url),
                      "%s/api/sensor/serial-found", base);
+            snprintf(api_uart_detection_result_url, sizeof(api_uart_detection_result_url),
+                     "%s/api/sensor/detect-uart/result", base);
         } else if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0) {
             uart_hvf_set_debug(1);
         } else if (strcmp(argv[i], "--simulate") == 0) {
@@ -658,6 +769,10 @@ int main(int argc, char **argv) {
         }
         port = detected_ports[0];
     }
+    if (!simulate_mode && dual_uart_mode && strcmp(port2, "auto") == 0) {
+        fprintf(stderr, "[ERROR] --port2 must name the second MCU UART explicitly.\n");
+        return 2;
+    }
 
     srand((unsigned int)time(NULL));
 
@@ -669,15 +784,29 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);  // 輸出導向檔案時仍即時可見
 
     platform_file_stamp_t st_old = {0}, st_new = {0};
-    char line[256];
+    char line[1024];
 
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
     if (!simulate_mode) {
+        snprintf(active_port_wle, sizeof(active_port_wle), "%s", port);
+        snprintf(active_port_wba, sizeof(active_port_wba), "%s", port2 ? port2 : "");
         uart_fd = uart_hvf_open(port);
         if (uart_fd == PLATFORM_UART_INVALID) {
             fprintf(stderr, "[WARN] Failed to open serial port: %s\n", port);
+        }
+        if (dual_uart_mode) {
+            uart_fd2 = uart_hvf_open(port2);
+            if (uart_fd2 == PLATFORM_UART_INVALID) {
+                fprintf(stderr, "[WARN] Failed to open second MCU serial port: %s\n", port2);
+            }
+        }
+        if (uart_fd != PLATFORM_UART_INVALID &&
+            (!dual_uart_mode || uart_fd2 != PLATFORM_UART_INVALID)) {
+            detect_console_layout(&port, &port2);
+            snprintf(active_port_wle, sizeof(active_port_wle), "%s", port);
+            snprintf(active_port_wba, sizeof(active_port_wba), "%s", port2 ? port2 : "");
         }
     }
 
@@ -688,6 +817,12 @@ int main(int argc, char **argv) {
     printf("========================================\n");
     printf("Mode       : %s\n", simulate_mode ? "SIMULATE (no hardware)" : "HARDWARE");
     printf("Serial port: %s\n", simulate_mode ? "disabled" : port);
+    if (dual_uart_mode) {
+        printf("Serial port 2: %s\n", simulate_mode ? "disabled" : port2);
+        printf("ID mode    : direct WLE/WBA consoles\n");
+    } else {
+        printf("ID mode    : WLE console + IPC passthrough for WBA\n");
+    }
     printf("監看檔案: %s\n", command_file);
     printf("事件 API : %s\n", api_events_url);
     printf("等待指令 (SEARCH / TEST <SERIAL>)... Ctrl-C 結束\n\n");
@@ -736,6 +871,7 @@ int main(int argc, char **argv) {
     }
 
     printf("\nShutting down...\n");
+    uart_hvf_close(uart_fd2);
     uart_hvf_close(uart_fd);
     platform_lock_release(&watcher_lock);
     platform_http_cleanup();
