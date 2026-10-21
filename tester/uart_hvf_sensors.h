@@ -36,6 +36,7 @@ int uart_hvf_measure_sensor(platform_uart_t uart, const char *sensor_name,
 
 int uart_hvf_test_buzzer(platform_uart_t uart, int duration_ms, int use_passthrough);
 int uart_hvf_test_spi(platform_uart_t uart);
+int uart_hvf_test_spi_dual(platform_uart_t wle_uart, platform_uart_t wba_uart);
 int uart_hvf_test_button(platform_uart_t uart, int wait_seconds, int use_passthrough);
 int uart_hvf_test_led(platform_uart_t uart, int led_index, int use_passthrough);
 int uart_hvf_set_led(platform_uart_t uart, int led_index, int on, int use_passthrough);

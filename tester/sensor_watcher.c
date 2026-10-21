@@ -488,7 +488,7 @@ void run_test_stage(const char *stage, const char *serial) {
                 int result = -1;
                 for (int attempt = 1; attempt <= 3 && result != 0; attempt++) {
                     platform_uart_t buzzer_uart = dual_uart_mode ? uart_fd2 : uart_fd;
-                    result = uart_hvf_test_buzzer(buzzer_uart, 3000, !dual_uart_mode);
+                    result = uart_hvf_test_buzzer(buzzer_uart, 1500, !dual_uart_mode);
                     if (result != 0 && attempt < 3) {
                         printf("[BUZZER] command failed => retry %d/3\n", attempt + 1);
                         platform_sleep_ms(150);
@@ -522,7 +522,9 @@ void run_test_stage(const char *stage, const char *serial) {
             return;
         }
 
-        int result = uart_hvf_test_spi(uart_fd);
+        int result = dual_uart_mode
+            ? uart_hvf_test_spi_dual(uart_fd, uart_fd2)
+            : uart_hvf_test_spi(uart_fd);
         const char *status = result == 0 ? "pass" : "fail";
         snprintf(detail, sizeof(detail), "\"test\":\"%s\",\"executed\":true", stage);
         send_event(serial, stage, status, detail);

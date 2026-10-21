@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, DatePicker, Input, message, Select, Space, Table, Tag } from 'antd';
+import { Button, Card, DatePicker, Input, message, Select, Space, Table, Tag, Typography } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
@@ -209,9 +209,60 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
   </>;
 };
 
+const FirmwareFlashRecords = ({ refreshTrigger, t, language }) => {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchRecords = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await testRecordsAPI.getFirmwareFlashRecords();
+      setRecords(data);
+    } catch (error) {
+      console.error(error);
+      message.error(t.loadDataFailed);
+    } finally {
+      setLoading(false);
+    }
+  }, [t.loadDataFailed]);
+
+  useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
+
+  const columns = [
+    { title: t.serialWle, dataIndex: 'serial_wle', width: 220 },
+    { title: t.serialWba, dataIndex: 'serial_wba', width: 220 },
+    { title: t.testFirmwareFlash, dataIndex: 'test_firmware_count', align: 'right', width: 180 },
+    { title: t.diagnosticsFirmwareFlash, dataIndex: 'diagnostics_firmware_count', align: 'right', width: 210 },
+    { title: t.diagnosticsSerialNumber, dataIndex: 'diagnostics_number', render: (value) => value || '' },
+    {
+      title: t.testTime,
+      dataIndex: 'updated_at',
+      render: (value) => value ? taipeiDateTime(value, language) : '-',
+    },
+  ];
+
+  return <Card
+    title={<Typography.Title level={4} style={{ margin: 0 }}>{t.firmwareFlashRecords}</Typography.Title>}
+    extra={<Button icon={<ReloadOutlined />} onClick={fetchRecords} loading={loading}>{t.refresh}</Button>}
+    style={{ marginBottom: 24 }}
+  >
+    <Table
+      columns={columns}
+      dataSource={records}
+      rowKey="key"
+      loading={loading}
+      pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
+    />
+  </Card>;
+};
+
 const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
   const t = translations[language];
-  return <SensorRunList refreshTrigger={onNewRecord} t={t} language={language} />;
+  return <>
+    <FirmwareFlashRecords refreshTrigger={onNewRecord} t={t} language={language} />
+    <Typography.Title level={4}>{t.sensorRuns}</Typography.Title>
+    <SensorRunList refreshTrigger={onNewRecord} t={t} language={language} />
+  </>;
 };
 
 export default TestRecordList;

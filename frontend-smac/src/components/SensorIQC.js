@@ -39,6 +39,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [detectingUart, setDetectingUart] = useState(false);
   const [uartDetected, setUartDetected] = useState(false);
   const [uartDetectionLogs, setUartDetectionLogs] = useState([]);
+  const [finalTestResult, setFinalTestResult] = useState(null);
   const readTimeoutRef = useRef(null);
   const serialPollRef = useRef(null);
   const stageTimeoutRef = useRef(null);
@@ -178,10 +179,16 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       return;
     }
 
-    if (status !== 'testing' || !detail?.awaiting_user_confirmation) return;
+    if (stage === 'testBuzzer') {
+      if (status === 'pass' || status === 'fail') {
+        buzzerPromptRef.current = null;
+        return;
+      }
+      if (status !== 'testing' || !detail?.awaiting_user_confirmation) return;
 
-    if (stage === 'testBuzzer' && buzzerPromptRef.current !== serial) {
-      buzzerPromptRef.current = serial;
+      const promptKey = `${serial}:${stageRequestIdsRef.current[stage] || 'active'}`;
+      if (buzzerPromptRef.current === promptKey) return;
+      buzzerPromptRef.current = promptKey;
       Modal.confirm({
         title: t.sensorIQC.buzzerQuestion,
         content: t.sensorIQC.buzzerPrompt,
@@ -202,6 +209,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       });
       return;
     }
+
+    if (status !== 'testing' || !detail?.awaiting_user_confirmation) return;
 
     if (stage === 'testGreenLED' || stage === 'testOrangeLED') {
       const promptKey = `${serial}:${stage}`;
@@ -224,6 +233,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       buttonPromptRef.current.destroy();
       buttonPromptRef.current = null;
     }
+    buzzerPromptRef.current = null;
+    ledPromptRef.current = null;
     const emptyResults = {
       getSensorIC: null,
       sht41: null,
@@ -248,6 +259,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     stageRequestIdsRef.current = {};
     completionExpectedRef.current = [];
     completionShownRef.current = false;
+    setFinalTestResult(null);
     setTestResults(emptyResults);
     setTestData(emptyData);
   };
@@ -519,6 +531,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     if (!uartDetected || testing || detectingUart) return;
     const sn = serialWle.trim();
     if (!sn) return;
+    setFinalTestResult(null);
 
     // 保留已取得的 Sensor IC 與其他單項結果；只有換序號或開始全測才全部清除。
     completionExpectedRef.current = [];
@@ -761,6 +774,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     // 1. 先探測 Sensor IC
     const icResult = await executeStage('getSensorIC', sn);
     if (icResult === 'fail') {
+      setFinalTestResult('fail');
       message.error(t.sensorIQC.testFailed);
       setTesting(false);
       setRunningStage(null);
@@ -822,6 +836,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
 
     const currentResults = testResultsRef.current;
     const allPassed = expectedStages.every((s) => currentResults[s] === 'pass');
+    setFinalTestResult(allPassed ? 'pass' : 'fail');
     setTesting(false);
     setRunningStage(null);
     if (allPassed) {
@@ -884,7 +899,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const visibleTestItems = testItems.filter(item =>
     !probeFinished || !sensorKeys.includes(item.key) || testData.sensors.includes(item.key)
   );
-  const completedTestCount = testItems.filter(item =>
+  const completedTestCount = visibleTestItems.filter(item =>
     testResults[item.key] === 'pass' || testResults[item.key] === 'fail'
   ).length;
   return (
@@ -926,7 +941,17 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
             <Col xs={24} md={6}>
               <Space direction="vertical" size={4}>
                 <Title level={4} style={{ margin: 0 }}>{t.sensorIQC.testResultTitle}</Title>
-                <Text strong>{completedTestCount}/{testItems.length}</Text>
+                <Text strong>{completedTestCount}/{visibleTestItems.length}</Text>
+                {finalTestResult && (
+                  <Tag
+                    icon={finalTestResult === 'pass'
+                      ? <CheckCircleOutlined />
+                      : <CloseCircleOutlined />}
+                    color={finalTestResult === 'pass' ? 'success' : 'error'}
+                  >
+                    {finalTestResult === 'pass' ? t.sensorIQC.pass : t.sensorIQC.fail}
+                  </Tag>
+                )}
               </Space>
             </Col>
           </Row>

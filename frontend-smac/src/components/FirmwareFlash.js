@@ -59,12 +59,20 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
       const decoder = new TextDecoder();
       let buffer = '';
       let exitCode = null;
+      let detectedWbaId = '';
+      let detectedSecondaryId = '';
       const appendLine = (rawLine) => {
         const line = rawLine.replace(/\r$/, '').replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
         if (!line) return;
-        if (line.startsWith('WBA_ID=')) setWbaId(line.slice('WBA_ID='.length));
+        if (line.startsWith('WBA_ID=')) {
+          detectedWbaId = line.slice('WBA_ID='.length).trim();
+          setWbaId(detectedWbaId);
+        }
         const secondaryIdPrefix = `${secondaryMcu}_ID=`;
-        if (line.startsWith(secondaryIdPrefix)) setSecondaryId(line.slice(secondaryIdPrefix.length));
+        if (line.startsWith(secondaryIdPrefix)) {
+          detectedSecondaryId = line.slice(secondaryIdPrefix.length).trim();
+          setSecondaryId(detectedSecondaryId);
+        }
         if (line.startsWith('FLASH_EXIT_CODE=')) {
           exitCode = Number(line.slice('FLASH_EXIT_CODE='.length));
           return;
@@ -82,16 +90,22 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
       }
       if (buffer) appendLine(buffer);
       if (exitCode !== 0) throw new Error(copy.failed);
+      if (!detectedWbaId || !detectedSecondaryId) {
+        throw new Error(copy.serialsUnavailable);
+      }
 
-      if (requiresSerialNumber) {
-        try {
-          await testRecordsAPI.recordFirmwareFlashSuccess(serialNumber, firmwareType);
-        } catch {
-          setResult('error');
-          setLogs((current) => [...current, copy.recordFailed]);
-          message.error(copy.recordFailed);
-          return;
-        }
+      try {
+        await testRecordsAPI.recordFirmwareFlashSuccess({
+          serial_wle: detectedSecondaryId,
+          serial_wba: detectedWbaId,
+          firmware_type: firmwareType,
+          diagnostics_number: requiresSerialNumber ? serialNumber : null,
+        });
+      } catch {
+        setResult('error');
+        setLogs((current) => [...current, copy.recordFailed]);
+        message.error(copy.recordFailed);
+        return;
       }
 
       setResult('success');

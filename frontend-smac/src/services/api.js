@@ -60,9 +60,8 @@ export const testRecordsAPI = {
   deleteSensorTestRun: (id) => api.delete(`/api/sensor/test-runs/${id}`),
   getCloudStatus: () => api.get('/api/cloud/status'),
   getFirmwareFlashCounts: (serialNumber) => api.get(`/api/firmware-flashes/${serialNumber}`),
-  recordFirmwareFlashSuccess: (serialNumber, firmwareType) => api.post(
-    `/api/firmware-flashes/${serialNumber}/${firmwareType}/success`
-  ),
+  getFirmwareFlashRecords: () => api.get('/api/firmware-flashes/'),
+  recordFirmwareFlashSuccess: (data) => api.post('/api/firmware-flashes/record-success', data),
   flashFirmware: (mode) => fetch(
     `${process.env.REACT_APP_FLASH_AGENT_URL || 'http://127.0.0.1:8765'}/api/firmware/${mode}/flash`,
     { method: 'POST' }

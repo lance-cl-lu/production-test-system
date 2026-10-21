@@ -74,6 +74,33 @@ class FirmwareFlashCount(Base):
         return f"<FirmwareFlashCount {self.serial_number}: test={self.test_firmware_count}, diagnostics={self.diagnostics_firmware_count}>"
 
 
+class FirmwareFlashSummary(Base):
+    """Global successful test-firmware flash count (test flashing has no entered number)."""
+    __tablename__ = "firmware_flash_summary"
+
+    id = Column(Integer, primary_key=True)
+    test_firmware_count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class FirmwareFlashRecord(Base):
+    """Successful firmware flash counts associated with one physical PCBA."""
+    __tablename__ = "firmware_flash_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    serial_wle = Column(String(100), nullable=False, index=True, comment="WLE MCU serial")
+    serial_wba = Column(String(100), nullable=False, index=True, comment="WBA MCU serial")
+    test_firmware_count = Column(Integer, nullable=False, default=0)
+    diagnostics_firmware_count = Column(Integer, nullable=False, default=0)
+    diagnostics_number = Column(String(8), nullable=True, comment="Entered 8-digit diagnostics number")
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("serial_wle", "serial_wba", name="uq_firmware_flash_pcba"),
+    )
+
+
 class SensorTestRun(Base):
     """一次完整或單項 Sensor IQC 執行。"""
     __tablename__ = "sensor_test_runs"

@@ -110,6 +110,39 @@ static int read_to_buffer(platform_uart_t uart, char *buf, size_t buf_size, int 
     return (int)offset;
 }
 
+static int read_until_marker(platform_uart_t uart, char *buf, size_t buf_size,
+                             int timeout_ms, const char *marker) {
+    size_t offset = 0;
+    unsigned char chunk[256];
+    int elapsed_ms = 0;
+    const int slice_ms = 25;
+
+    if (buf == NULL || buf_size == 0U || marker == NULL) return -1;
+    buf[0] = '\0';
+
+    while (elapsed_ms < timeout_ms && offset < buf_size - 1U) {
+        int wait_ms = timeout_ms - elapsed_ms;
+        if (wait_ms > slice_ms) wait_ms = slice_ms;
+        int ready = wait_for_data(uart, wait_ms);
+        if (ready > 0) {
+            int received = platform_uart_read(uart, chunk, sizeof(chunk));
+            if (received < 0) return -1;
+            if (received > 0) {
+                size_t copy_length = (size_t)received;
+                if (copy_length > buf_size - offset - 1U) {
+                    copy_length = buf_size - offset - 1U;
+                }
+                memcpy(buf + offset, chunk, copy_length);
+                offset += copy_length;
+                buf[offset] = '\0';
+                if (strstr(buf, marker) != NULL) return (int)offset;
+            }
+        }
+        elapsed_ms += wait_ms;
+    }
+    return (int)offset;
+}
+
 static int buffer_contains_error(const char *buffer) {
     return (strstr(buffer, "Error:") != NULL) || (strstr(buffer, "ERROR:") != NULL) ||
            (strstr(buffer, "Invalid") != NULL) || (strstr(buffer, "Unknown command") != NULL);
@@ -303,23 +336,19 @@ static int read_stm32_id_direct(platform_uart_t uart, char *out, size_t out_len)
     char after_enter[256];
     char response[1024];
 
-    if (drain_until_idle(uart, IDLE_MS) != 0) {
-        debug_print("[debug] initial drain failed\n");
-        return -1;
-    }
-
     write_all(uart, "\r");
-    platform_sleep_ms(WAIT_MS);
 
     memset(after_enter, 0, sizeof(after_enter));
-    read_to_buffer(uart, after_enter, sizeof(after_enter), 200);
+    read_until_marker(uart, after_enter, sizeof(after_enter), 300, "hvf>");
     debug_print("[debug] after Enter bytes: %s\n", after_enter);
+    // Wait for the console to finish emitting its prompt before sending the next command.
+    platform_sleep_ms(WAIT_MS);
 
     write_all(uart, "stm32_id_info\r\n");
     platform_sleep_ms(WAIT_MS);
 
     memset(response, 0, sizeof(response));
-    read_to_buffer(uart, response, sizeof(response), 1500);
+    read_until_marker(uart, response, sizeof(response), 1500, "<[OK]>");
     debug_print("[debug] raw response: %s\n", response);
 
     if (extract_hvf_payload(response, out, out_len) != 0) {

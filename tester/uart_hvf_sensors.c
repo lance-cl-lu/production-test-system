@@ -8,6 +8,7 @@
 
 #define SENSOR_IDLE_MS 200
 #define SENSOR_WAIT_MS 100
+#define LED_COMMAND_TIMEOUT_MS 3000
 #define SPI_RX_TIMEOUT_MS 12000
 #define SPI_TX_TIMEOUT_MS 12000
 
@@ -95,14 +96,89 @@ static int read_to_buffer(platform_uart_t uart, char *buffer, size_t buffer_size
     return (int)offset;
 }
 
+static int read_until_markers(platform_uart_t uart, char *buffer, size_t buffer_size,
+                              int timeout_ms, const char *marker1, const char *marker2) {
+    size_t offset = 0;
+    unsigned char chunk[256];
+    int elapsed_ms = 0;
+    const int slice_ms = 50;
+
+    if (buffer == NULL || buffer_size == 0U) return -1;
+    buffer[0] = '\0';
+
+    while (elapsed_ms < timeout_ms && offset < buffer_size - 1U) {
+        int wait_ms = timeout_ms - elapsed_ms;
+        if (wait_ms > slice_ms) wait_ms = slice_ms;
+        int ready = wait_for_data(uart, wait_ms);
+        if (ready > 0) {
+            int received = platform_uart_read(uart, chunk, sizeof(chunk));
+            if (received < 0) return -1;
+            if (received > 0) {
+                size_t copy_length = (size_t)received;
+                if (copy_length > buffer_size - offset - 1U) {
+                    copy_length = buffer_size - offset - 1U;
+                }
+                memcpy(buffer + offset, chunk, copy_length);
+                offset += copy_length;
+                buffer[offset] = '\0';
+                if (marker1 != NULL && strstr(buffer, marker1) != NULL &&
+                    (marker2 == NULL || strstr(buffer, marker2) != NULL)) {
+                    return (int)offset;
+                }
+            }
+        }
+        elapsed_ms += wait_ms;
+    }
+    return (int)offset;
+}
+
+static int read_until_command_result(platform_uart_t uart, char *buffer, size_t buffer_size,
+                                     int timeout_ms) {
+    size_t offset = 0;
+    unsigned char chunk[256];
+    int elapsed_ms = 0;
+    const int slice_ms = 50;
+
+    if (buffer == NULL || buffer_size == 0U) return -1;
+    buffer[0] = '\0';
+
+    while (elapsed_ms < timeout_ms && offset < buffer_size - 1U) {
+        int wait_ms = timeout_ms - elapsed_ms;
+        if (wait_ms > slice_ms) wait_ms = slice_ms;
+        int ready = wait_for_data(uart, wait_ms);
+        if (ready > 0) {
+            int received = platform_uart_read(uart, chunk, sizeof(chunk));
+            if (received < 0) return -1;
+            if (received > 0) {
+                size_t copy_length = (size_t)received;
+                if (copy_length > buffer_size - offset - 1U) {
+                    copy_length = buffer_size - offset - 1U;
+                }
+                memcpy(buffer + offset, chunk, copy_length);
+                offset += copy_length;
+                buffer[offset] = '\0';
+                if (strstr(buffer, "<[OK]>") != NULL ||
+                    strstr(buffer, "<[ERROR]>") != NULL ||
+                    strstr(buffer, "Unknown command") != NULL ||
+                    strstr(buffer, "ERROR") != NULL ||
+                    strstr(buffer, "Error:") != NULL) {
+                    return (int)offset;
+                }
+            }
+        }
+        elapsed_ms += wait_ms;
+    }
+    return (int)offset;
+}
+
 static int run_sensor_probe(sensor_probe_context_t *context, const char *sensor_name) {
     char command[64];
 
     snprintf(command, sizeof(command), "sensor_probe %s\r\n", sensor_name);
     memset(context->response, 0, sizeof(context->response));
     write_all(context->uart, command);
-    platform_sleep_ms(SENSOR_WAIT_MS);
-    read_to_buffer(context->uart, context->response, sizeof(context->response), 1500);
+    read_until_command_result(context->uart, context->response,
+                              sizeof(context->response), 1500);
 
     if (strstr(context->response, "<[OK]>") != NULL) {
         return 1;
@@ -134,8 +210,8 @@ static int run_measurement_command(sensor_probe_context_t *context,
     context->response[0] = '\0';
     write_all(context->uart, command);
     write_all(context->uart, "\r\n");
-    platform_sleep_ms(SENSOR_WAIT_MS);
-    read_to_buffer(context->uart, context->response, sizeof(context->response), 1500);
+    read_until_command_result(context->uart, context->response,
+                              sizeof(context->response), 1500);
 
     if (strstr(context->response, "<[OK]>") == NULL) {
         return 0;
@@ -407,6 +483,36 @@ int uart_hvf_test_spi(platform_uart_t uart) {
     return result;
 }
 
+int uart_hvf_test_spi_dual(platform_uart_t wle_uart, platform_uart_t wba_uart) {
+    char wle_response[2048];
+    char wba_response[2048];
+
+    if (wle_uart == PLATFORM_UART_INVALID || wba_uart == PLATFORM_UART_INVALID ||
+        drain_until_idle(wle_uart, SENSOR_IDLE_MS) != 0 ||
+        drain_until_idle(wba_uart, SENSOR_IDLE_MS) != 0) {
+        return -1;
+    }
+
+    // Arm the WBA receiver first, then start the WLE transmitter immediately.
+    write_all(wba_uart, "ipc_spi_rx_echo\r\n");
+    platform_sleep_ms(50);
+    write_all(wle_uart, "ipc_spi_tx_echo\r\n");
+
+    memset(wle_response, 0, sizeof(wle_response));
+    read_until_markers(wle_uart, wle_response, sizeof(wle_response), SPI_TX_TIMEOUT_MS,
+                       "IPC SPI TX echo test PASSED (32 bytes)", "<[OK]>");
+    spi_debug_dump("WLE ipc_spi_tx_echo response", wle_response);
+
+    // WLE's explicit 32-byte PASS marker and command OK are the success contract.
+    int passed = strstr(wle_response, "IPC SPI TX echo test PASSED (32 bytes)") != NULL &&
+                 strstr(wle_response, "<[OK]>") != NULL;
+
+    memset(wba_response, 0, sizeof(wba_response));
+    read_to_buffer(wba_uart, wba_response, sizeof(wba_response), 300);
+    spi_debug_dump("WBA ipc_spi_rx_echo response", wba_response);
+    return passed ? 0 : -1;
+}
+
 int uart_hvf_test_button(platform_uart_t uart, int wait_seconds, int use_passthrough) {
     char command[64];
     char response[2048];
@@ -495,10 +601,11 @@ int uart_hvf_set_led(platform_uart_t uart, int led_index, int on, int use_passth
     }
 
     snprintf(command, sizeof(command), "%s %d", on ? "led_on" : "led_off", led_index);
-    result = run_command_until_ok_capture(uart, command, 1500, 1,
+    result = run_command_until_ok_capture(uart, command, LED_COMMAND_TIMEOUT_MS, 1,
                                           response, sizeof(response));
     if (result != 0) {
-        fprintf(stderr, "[LED][debug] %s response: %s\n", command,
+        fprintf(stderr, "[LED][debug] %s failed (timeout=%d ms), response: %s\n",
+                command, LED_COMMAND_TIMEOUT_MS,
                 response[0] != '\0' ? response : "<empty>");
     }
     if (use_passthrough) {
@@ -520,8 +627,8 @@ int uart_hvf_probe_sensors(platform_uart_t uart, uart_hvf_sensor_result_t *resul
     }
 
     write_all(uart, "\r");
-    platform_sleep_ms(SENSOR_WAIT_MS);
-    read_to_buffer(uart, context.response, sizeof(context.response), 300);
+    read_until_markers(uart, context.response, sizeof(context.response), 300,
+                       "hvf>", NULL);
 
     result->sht41 = run_sensor_probe(&context, "sht41");
     result->ens210 = run_sensor_probe(&context, "ens210");
