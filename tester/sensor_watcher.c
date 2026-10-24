@@ -990,9 +990,9 @@ int main(int argc, char **argv) {
     } else {
         printf("ID mode    : WLE console + IPC passthrough for WBA\n");
     }
-    printf("監看檔案: %s\n", command_file);
-    printf("事件 API : %s\n", api_events_url);
-    printf("等待指令 (SEARCH / TEST <SERIAL>)... Ctrl-C 結束\n\n");
+    printf("Watching file: %s\n", command_file);
+    printf("Events API : %s\n", api_events_url);
+    printf("Waiting for command (SEARCH / TEST <SERIAL>)... Press Ctrl-C to exit\n\n");
 
     platform_file_stamp(command_file, &st_old);
 
