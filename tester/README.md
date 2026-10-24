@@ -141,9 +141,16 @@ make sensor_watcher
 # WLE 與 WBA 各自接到獨立 UART 時，SEARCH 直接使用兩邊的 console 讀取序號
 ./sensor_watcher --port /dev/tty.usbserial-WLE --port2 /dev/tty.usbserial-WBA
 
+"/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI" \
+  -c "port=SWD index=0 freq=1000" \
+  -w "/Users/lance/work/Github/production-test-system/fwpack-special/intertek001.bin" \
+  0x080FE000 -v
+
 # 沒有實際硬體時，不會開啟 UART，並產生模擬序號與通過的測試資料
 ./sensor_watcher --simulate
 ```
+
+SmartAC-5G qFvV9zFbwgx8nCJsoK9m
 
 `--simulate` 會保留共享檔案與 HTTP/WebSocket 的完整流程，只將 UART 硬體交互換成模擬資料，適合本機開發與前後端整合測試。
 
