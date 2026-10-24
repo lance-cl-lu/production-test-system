@@ -104,6 +104,11 @@ class StartTestRequest(BaseModel):
     serial: str
 
 
+class BeginRunRequest(BaseModel):
+    serial_wle: str
+    serial_wba: Optional[str] = None
+
+
 class SerialFoundRequest(BaseModel):
     serial_wle: str
     serial_wba: Optional[str] = None
@@ -254,29 +259,14 @@ async def sensor_serial_found(request: SerialFoundRequest, db: Session = Depends
         raise HTTPException(status_code=400, detail="serial_wle is required")
 
     global latest_sensor_serials, pending_read_started_at
-    started_at = pending_read_started_at or utc_now()
     pending_read_started_at = None
 
-    # 每次「讀取序號」都是一個新的測試 session。後續 full/single
-    # 測項都更新這一筆，直到下一次讀取序號。
-    db_run = SensorTestRun(
-        serial_wle=serial_wle,
-        serial_wba=serial_wba or None,
-        run_mode="session",
-        requested_stage=None,
-        test_result="PENDING",
-        started_at=started_at,
-        completed_at=started_at,
-    )
-    db.add(db_run)
-    _enqueue_cloud_sync(db, db_run)
-    db.commit()
-    db.refresh(db_run)
-    active_sensor_run_ids[serial_wle] = db_run.id
+    # 讀取序號只辨識裝置，不建立測試紀錄；每次按 Start Test 才建立新紀錄。
+    active_sensor_run_ids.pop(serial_wle, None)
     latest_sensor_serials = {
         "serial_wle": serial_wle,
         "serial_wba": serial_wba,
-        "run_id": db_run.id,
+        "run_id": None,
     }
 
     logger.info(
@@ -286,12 +276,12 @@ async def sensor_serial_found(request: SerialFoundRequest, db: Session = Depends
     try:
         await manager.broadcast({
             "type": "sensor_serial_found",
-            "data": {"serial_wle": serial_wle, "serial_wba": serial_wba, "run_id": db_run.id},
+            "data": {"serial_wle": serial_wle, "serial_wba": serial_wba, "run_id": None},
             "timestamp": datetime.now().isoformat(),
         })
 
         return {"status": "accepted", "serial_wle": serial_wle,
-                "serial_wba": serial_wba, "run_id": db_run.id}
+                "serial_wba": serial_wba, "run_id": None}
 
     except Exception as e:
         logger.exception(f"[Sensor:/serial-found] Failed to broadcast serials: {e}")
@@ -337,6 +327,32 @@ async def start_sensor_test(request: StartTestRequest):
     except Exception as e:
         logger.exception(f"[Sensor:/start-test] Failed to write test command: {e}")
         raise HTTPException(status_code=500, detail="Failed to trigger test")
+
+
+@router.post("/begin-run")
+def begin_sensor_run(request: BeginRunRequest, db: Session = Depends(get_db)):
+    """Create one table row for an explicit Start Test action."""
+    serial_wle = (request.serial_wle or "").strip()
+    serial_wba = (request.serial_wba or "").strip()
+    if not serial_wle:
+        raise HTTPException(status_code=400, detail="serial_wle is required")
+
+    started_at = utc_now()
+    db_run = SensorTestRun(
+        serial_wle=serial_wle,
+        serial_wba=serial_wba or None,
+        run_mode="session",
+        requested_stage=None,
+        test_result="PENDING",
+        started_at=started_at,
+        completed_at=started_at,
+    )
+    db.add(db_run)
+    _enqueue_cloud_sync(db, db_run)
+    db.commit()
+    db.refresh(db_run)
+    active_sensor_run_ids[serial_wle] = db_run.id
+    return {"status": "created", "run_id": db_run.id}
 
 
 @router.post("/events")

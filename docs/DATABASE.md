@@ -23,15 +23,16 @@
 
 ## Sensor IQC 測試資料
 
-Sensor IQC 不再把不同 IC 的量測值塞進 `test_records.temperature`。每次完整或單項測試
-寫入一筆 `sensor_test_runs`，實際執行的每個測項則寫入多筆 `sensor_test_items`。
+Sensor IQC 不再把不同 IC 的量測值塞進 `test_records.temperature`。每次按下 Start Test
+建立一筆 `sensor_test_runs`；完整測試及其後的單項重測都更新這筆紀錄，逐項結果寫入
+`sensor_test_items`。若再次按 Start Test，則建立新的 run。
 
 ### sensor_test_runs
 
 | 欄位 | 類型 | 說明 |
 |---|---|---|
 | serial_wle / serial_wba | VARCHAR | 同一組裝置的兩組 UID |
-| run_mode | VARCHAR | `full` 或 `single` |
+| run_mode | VARCHAR | Sensor IQC session |
 | requested_stage | VARCHAR | 單項測試指定的項目 |
 | test_result | VARCHAR | 本次實際測項的 PASS/FAIL |
 | started_at / completed_at | DATETIME | 測試開始與完成時間 |

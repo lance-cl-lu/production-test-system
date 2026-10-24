@@ -768,6 +768,19 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       }
     }
 
+    try {
+      const { data } = await testRecordsAPI.beginSensorRun({
+        serial_wle: sn,
+        serial_wba: serialWba.trim() || undefined,
+      });
+      setCurrentRunId(data.run_id);
+    } catch (error) {
+      console.error('Failed to create Sensor IQC run:', error);
+      message.error(t.sensorIQC.saveFailed || 'Failed to create test record');
+      setTesting(false);
+      return;
+    }
+
     resetTest();
     message.info(t.sensorIQC.testStarted);
 
