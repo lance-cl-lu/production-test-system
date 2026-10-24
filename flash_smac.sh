@@ -44,9 +44,16 @@ case "${MODE}" in
 esac
 
 find_programmer() {
-  local candidate
+  local candidate windows_program_files
+  windows_program_files="${PROGRAMFILES:-}"
+  if [[ -n "${windows_program_files}" ]] && command -v cygpath >/dev/null 2>&1; then
+    windows_program_files="$(cygpath -u "${windows_program_files}")"
+  elif [[ -z "${windows_program_files}" ]]; then
+    windows_program_files="/c/Program Files"
+  fi
   for candidate in \
     "${STM32_PROGRAMMER_CLI:-}" \
+    "${windows_program_files}/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe" \
     "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI" \
     "/Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.macos64_2.2.300.202508131133/tools/bin/STM32_Programmer_CLI"; do
     if [[ -n "${candidate}" && -x "${candidate}" ]]; then

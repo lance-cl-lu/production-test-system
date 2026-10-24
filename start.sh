@@ -3,6 +3,15 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FLASH_AGENT_PID_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.pid"
 FLASH_AGENT_LOG_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.log"
+PYTHON_COMMAND=()
+
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_COMMAND=(python3)
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_COMMAND=(python)
+elif command -v py >/dev/null 2>&1; then
+    PYTHON_COMMAND=(py -3)
+fi
 
 # 優先使用 Docker Compose v2 (docker compose)，找不到才退回 v1 (docker-compose)
 if docker compose version >/dev/null 2>&1; then
@@ -84,17 +93,21 @@ else
         kill "${OLD_FLASH_AGENT_PID}" 2>/dev/null || true
         sleep 1
     fi
-    nohup python3 "${SCRIPT_DIR}/flash_agent.py" >>"${FLASH_AGENT_LOG_FILE}" 2>&1 </dev/null &
-    echo $! >"${FLASH_AGENT_PID_FILE}"
-    for _ in {1..10}; do
-        if curl -fsS "http://127.0.0.1:8765/health" >/dev/null 2>&1; then
-            echo "   ✅ 主機燒錄服務已就緒 (8765)"
-            break
+    if [ ${#PYTHON_COMMAND[@]} -eq 0 ]; then
+        echo "   ⚠️ 找不到 Python；請安裝 Python 3 後重新執行 ./start.sh。"
+    else
+        nohup "${PYTHON_COMMAND[@]}" "${SCRIPT_DIR}/flash_agent.py" >>"${FLASH_AGENT_LOG_FILE}" 2>&1 </dev/null &
+        echo $! >"${FLASH_AGENT_PID_FILE}"
+        for _ in {1..10}; do
+            if curl -fsS "http://127.0.0.1:8765/health" >/dev/null 2>&1; then
+                echo "   ✅ 主機燒錄服務已就緒 (8765)"
+                break
+            fi
+            sleep 1
+        done
+        if ! curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
+            echo "   ⚠️ 主機燒錄服務啟動失敗；請查看 ${FLASH_AGENT_LOG_FILE}"
         fi
-        sleep 1
-    done
-    if ! curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
-        echo "   ⚠️ 主機燒錄服務啟動失敗；請查看 ${FLASH_AGENT_LOG_FILE}"
     fi
 fi
 

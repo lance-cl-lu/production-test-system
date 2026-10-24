@@ -2,8 +2,11 @@
 """Local bridge for running the host ST-Link flashing script from the UI."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import threading
 
 
@@ -18,6 +21,29 @@ _allowed_origins = {
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
 }
+
+
+def _bash_executable():
+    configured = os.environ.get("FLASH_BASH")
+    if configured:
+        return configured
+    if sys.platform == "win32":
+        program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        candidates = (
+            program_files / "Git" / "bin" / "bash.exe",
+            program_files / "Git" / "usr" / "bin" / "bash.exe",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Git" / "bin" / "bash.exe",
+        )
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+        path_bash = shutil.which("bash")
+        if path_bash and "\\windows\\system32\\bash.exe" not in path_bash.casefold():
+            return path_bash
+        raise FileNotFoundError(
+            "Git for Windows Bash was not found. Install Git for Windows or set FLASH_BASH to bash.exe."
+        )
+    return shutil.which("bash") or "bash"
 
 
 class FlashHandler(BaseHTTPRequestHandler):
@@ -81,7 +107,7 @@ class FlashHandler(BaseHTTPRequestHandler):
 
         try:
             process = subprocess.Popen(
-                ["bash", str(FLASH_SCRIPT), mode],
+                [_bash_executable(), str(FLASH_SCRIPT), mode],
                 cwd=str(ROOT_DIR),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
