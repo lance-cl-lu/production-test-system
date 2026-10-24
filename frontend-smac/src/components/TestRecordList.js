@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, DatePicker, Input, message, Select, Space, Table, Tag, Typography } from 'antd';
+import { Button, DatePicker, Input, message, Select, Space, Table, Tag, Typography } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
@@ -58,6 +58,7 @@ const RecordFilters = ({ filters, setFilters, onSearch, onExport, loading, expor
 
 const SensorRunList = ({ refreshTrigger, t, language }) => {
   const [records, setRecords] = useState([]);
+  const [flashRecords, setFlashRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState({ serial: '', test_result: null, dateRange: null });
@@ -74,6 +75,8 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
       }
       const response = await testRecordsAPI.getSensorTestRuns(params);
       setRecords(response.data);
+      const flashResponse = await testRecordsAPI.getFirmwareFlashRecords();
+      setFlashRecords(flashResponse.data);
     } catch (error) {
       console.error(error);
       message.error(t.loadDataFailed);
@@ -120,6 +123,10 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
   };
 
   const sensorDetailStages = ['sht41', 'ens210', 'lps22df', 'bme690'];
+  const flashRecordByPcba = new Map(flashRecords.map((record) => [
+    `${record.serial_wle}\u0000${record.serial_wba}`,
+    record,
+  ]));
   const sensorStages = [
     'getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690',
     'testButton', 'testGreenLED', 'testOrangeLED', 'testBuzzer', 'testSPI',
@@ -155,6 +162,14 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
       align: 'center', render: (value) => resultTag(value, t) },
     { title: t.testTime, dataIndex: 'started_at', width: 170,
       render: (value) => taipeiDateTime(value, language) },
+    { title: t.testFirmwareFlash, key: 'test_firmware_count', align: 'right', width: 180,
+      render: (_, record) => flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.test_firmware_count ?? 0 },
+    { title: t.diagnosticsFirmwareFlash, key: 'diagnostics_firmware_count', align: 'right', width: 210,
+      render: (_, record) => flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.diagnostics_firmware_count ?? 0 },
+    { title: t.diagnosticsSerialNumber, key: 'diagnostics_number', width: 200,
+      render: (_, record) => flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.diagnostics_number || '-' },
+    { title: t.firmwareFlashTime, key: 'firmware_flash_time', width: 190,
+      render: (_, record) => taipeiDateTime(flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.updated_at, language) },
     ...sensorStages.map((stage) => ({
       title: t.sensorIQC?.[stage] || stage,
       key: stage,
@@ -203,63 +218,15 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
           />
         ),
       }}
-      scroll={{ x: 2100 }}
+      scroll={{ x: 2850 }}
       pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
     />
   </>;
 };
 
-const FirmwareFlashRecords = ({ refreshTrigger, t, language }) => {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const fetchRecords = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await testRecordsAPI.getFirmwareFlashRecords();
-      setRecords(data);
-    } catch (error) {
-      console.error(error);
-      message.error(t.loadDataFailed);
-    } finally {
-      setLoading(false);
-    }
-  }, [t.loadDataFailed]);
-
-  useEffect(() => { fetchRecords(); }, [fetchRecords, refreshTrigger]);
-
-  const columns = [
-    { title: t.serialWle, dataIndex: 'serial_wle', width: 220 },
-    { title: t.serialWba, dataIndex: 'serial_wba', width: 220 },
-    { title: t.testFirmwareFlash, dataIndex: 'test_firmware_count', align: 'right', width: 180 },
-    { title: t.diagnosticsFirmwareFlash, dataIndex: 'diagnostics_firmware_count', align: 'right', width: 210 },
-    { title: t.diagnosticsSerialNumber, dataIndex: 'diagnostics_number', render: (value) => value || '' },
-    {
-      title: t.testTime,
-      dataIndex: 'updated_at',
-      render: (value) => value ? taipeiDateTime(value, language) : '-',
-    },
-  ];
-
-  return <Card
-    title={<Typography.Title level={4} style={{ margin: 0 }}>{t.firmwareFlashRecords}</Typography.Title>}
-    extra={<Button icon={<ReloadOutlined />} onClick={fetchRecords} loading={loading}>{t.refresh}</Button>}
-    style={{ marginBottom: 24 }}
-  >
-    <Table
-      columns={columns}
-      dataSource={records}
-      rowKey="key"
-      loading={loading}
-      pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
-    />
-  </Card>;
-};
-
 const TestRecordList = ({ onNewRecord, language = 'zh-TW' }) => {
   const t = translations[language];
   return <>
-    <FirmwareFlashRecords refreshTrigger={onNewRecord} t={t} language={language} />
     <Typography.Title level={4}>{t.sensorRuns}</Typography.Title>
     <SensorRunList refreshTrigger={onNewRecord} t={t} language={language} />
   </>;
