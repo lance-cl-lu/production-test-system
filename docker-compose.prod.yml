@@ -50,6 +50,8 @@ services:
       - backend
 
   frontend-nl:
+    profiles:
+      - frontend-nl
     image: ghcr.io/lance-cl-lu/production-test-system/frontend-nl:latest
     build:
       context: ./frontend-nl

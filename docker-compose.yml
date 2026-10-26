@@ -92,6 +92,8 @@ services:
     tty: true
 
   frontend-nl:
+    profiles:
+      - frontend-nl
     build: ./frontend-nl
     container_name: production_test_frontend_nl
     restart: always

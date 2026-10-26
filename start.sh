@@ -50,7 +50,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 # 啟動所有 Docker 容器
-echo "📦 啟動所有服務 (MySQL + Backend + Frontend)..."
+echo "📦 啟動預設服務 (MySQL + Backend + Frontend SMAC)..."
 COMPOSE_ENV_ARGS=()
 if [ -n "$ENV_FILE" ]; then
     COMPOSE_ENV_ARGS=(--env-file "$ENV_FILE")
@@ -82,7 +82,6 @@ wait_for() {
 
 wait_for "後端 API  (8000)" "http://localhost:8000/docs"
 wait_for "前端 SMAC (3000)" "http://localhost:3000/"
-wait_for "前端 NL   (3001)" "http://localhost:3001/"
 
 if curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
     echo "   ✅ 主機燒錄服務已就緒 (8765)"
@@ -116,9 +115,9 @@ echo "✅ 系統啟動完成！"
 echo ""
 echo "📍 服務網址:"
 echo "   前端 SMAC: http://localhost:3000"
-echo "   前端 NL:   http://localhost:3001"
 echo "   後端 API:  http://localhost:8000"
 echo "   API 文檔:  http://localhost:8000/docs"
+echo "   NL 前端需手動啟動: ${COMPOSE[*]} -f $COMPOSE_FILE --profile frontend-nl up -d --build frontend-nl"
 echo ""
 echo "💡 提示:"
 echo "   - 開發模式: ./start.sh"

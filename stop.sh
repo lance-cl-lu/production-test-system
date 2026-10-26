@@ -26,7 +26,7 @@ echo ""
 
 # 停止所有 Docker 容器
 echo "停止所有容器..."
-"${COMPOSE[@]}" -f "$COMPOSE_FILE" down
+"${COMPOSE[@]}" --profile frontend-nl -f "$COMPOSE_FILE" down
 
 if [ -f "${FLASH_AGENT_PID_FILE}" ]; then
     FLASH_AGENT_PID="$(cat "${FLASH_AGENT_PID_FILE}")"
