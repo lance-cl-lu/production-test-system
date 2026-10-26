@@ -1,0 +1,4 @@
+python-3.13.17-amd64
+py -m pip install PyNaCl
+py -m pip install pyserial
+python -m pip install crcmod
