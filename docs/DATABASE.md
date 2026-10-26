@@ -50,6 +50,13 @@ Sensor IQC 不再把不同 IC 的量測值塞進 `test_records.temperature`。�
 | gas_resistance_ohm | FLOAT | 該 IC 的氣體電阻 |
 | detail_json | TEXT | 其餘原始測試資料 |
 
+### firmware_flash_target_records
+
+當燒錄時只連接一個 ST-Link，系統仍會辨識目標 MCU 並燒錄；此表以 MCU 類型及序號保存
+該單顆 MCU 的成功燒錄次數。若 WLE、WBA 序號皆可取得，仍使用 `firmware_flash_records`
+保存歷史整組 PCBA 的燒錄紀錄。現在每次成功燒錄都會分別寫入 WLE/WBA 的 MCU 紀錄，
+讓只有其中一顆實際燒錄時不會誤增加另一顆的次數。
+
 ### cloud_upload_logs (雲端上傳日誌)
 
 | 欄位 | 類型 | 說明 | 約束 |

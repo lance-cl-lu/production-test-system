@@ -90,14 +90,14 @@ function FirmwareFlash({ language = 'zh-TW', mode = 'hvf' }) {
       }
       if (buffer) appendLine(buffer);
       if (exitCode !== 0) throw new Error(copy.failed);
-      if (!detectedWbaId || !detectedSecondaryId) {
+      if (!detectedWbaId && !detectedSecondaryId) {
         throw new Error(copy.serialsUnavailable);
       }
 
       try {
         await testRecordsAPI.recordFirmwareFlashSuccess({
-          serial_wle: detectedSecondaryId,
-          serial_wba: detectedWbaId,
+          serial_wle: detectedSecondaryId || undefined,
+          serial_wba: detectedWbaId || undefined,
           firmware_type: firmwareType,
           diagnostics_number: requiresSerialNumber ? serialNumber : null,
         });

@@ -691,6 +691,27 @@ def get_sensor_test_run_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.delete("/test-runs/uploaded")
+def delete_uploaded_sensor_test_runs(db: Session = Depends(get_db)):
+    """Delete local Sensor runs whose latest cloud-sync event was uploaded."""
+    latest_events = db.query(
+        func.max(CloudSyncOutbox.id).label("id")
+    ).filter(
+        CloudSyncOutbox.entity_type == "sensor_test_run"
+    ).group_by(CloudSyncOutbox.entity_uuid).subquery()
+    uploaded_uuids = db.query(CloudSyncOutbox.entity_uuid).join(
+        latest_events, CloudSyncOutbox.id == latest_events.c.id
+    ).filter(CloudSyncOutbox.status == "UPLOADED").subquery()
+    runs = db.query(SensorTestRun).filter(
+        SensorTestRun.sync_uuid.in_(uploaded_uuids)
+    ).all()
+    deleted_count = len(runs)
+    for run in runs:
+        db.delete(run)
+    db.commit()
+    return {"deleted_count": deleted_count}
+
+
 @router.delete("/test-runs/{run_id}", status_code=204)
 def delete_sensor_test_run(run_id: int, db: Session = Depends(get_db)):
     run = db.query(SensorTestRun).filter(SensorTestRun.id == run_id).first()

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, DatePicker, Input, message, Select, Space, Table, Tag, Typography } from 'antd';
-import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, DatePicker, Input, message, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { DeleteOutlined, DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { testRecordsAPI } from '../services/api';
 import { translations } from '../i18n/locales';
 
@@ -23,7 +23,7 @@ const taipeiDateTime = (value, language = 'zh-TW') => value ? new Intl.DateTimeF
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 }).format(new Date(value)).replaceAll('/', '-') : '-';
 
-const RecordFilters = ({ filters, setFilters, onSearch, onExport, loading, exporting, t, serialPlaceholder }) => (
+const RecordFilters = ({ filters, setFilters, onSearch, onExport, onDeleteUploaded, loading, exporting, deleting, t, serialPlaceholder }) => (
   <Space style={{ marginBottom: 16 }} wrap>
     <Input
       placeholder={serialPlaceholder}
@@ -53,6 +53,9 @@ const RecordFilters = ({ filters, setFilters, onSearch, onExport, loading, expor
     <Button icon={<DownloadOutlined />} onClick={onExport} loading={exporting}>
       {t.exportCsv}
     </Button>
+    <Button danger icon={<DeleteOutlined />} onClick={onDeleteUploaded} loading={deleting}>
+      {t.deleteUploadedRecords}
+    </Button>
   </Space>
 );
 
@@ -61,6 +64,7 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
   const [flashRecords, setFlashRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [filters, setFilters] = useState({ serial: '', test_result: null, dateRange: null });
 
   const fetchRecords = useCallback(async () => {
@@ -122,11 +126,47 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
     }
   };
 
+  const deleteUploadedRecords = () => Modal.confirm({
+    title: t.deleteUploadedRecords,
+    content: t.deleteUploadedRecordsConfirm,
+    okText: t.delete,
+    okButtonProps: { danger: true, loading: deleting },
+    cancelText: t.cancel,
+    onOk: async () => {
+      setDeleting(true);
+      try {
+        const { data } = await testRecordsAPI.deleteUploadedSensorTestRuns();
+        message.success(t.deleteUploadedRecordsSuccess.replace('{count}', String(data.deleted_count)));
+        await fetchRecords();
+      } catch (error) {
+        console.error(error);
+        message.error(t.deleteUploadedRecordsFailed);
+      } finally {
+        setDeleting(false);
+      }
+    },
+  });
+
   const sensorDetailStages = ['sht41', 'ens210', 'lps22df', 'bme690'];
-  const flashRecordByPcba = new Map(flashRecords.map((record) => [
-    `${record.serial_wle}\u0000${record.serial_wba}`,
-    record,
-  ]));
+  const flashDataForRun = (run) => {
+    const paired = flashRecords.find((record) => !record.mcu_type &&
+      record.serial_wle === run.serial_wle && record.serial_wba === run.serial_wba);
+    const wle = flashRecords.find((record) => record.mcu_type === 'WLE' &&
+      record.serial_wle === run.serial_wle);
+    const wba = flashRecords.find((record) => record.mcu_type === 'WBA' &&
+      record.serial_wba === run.serial_wba);
+    const sources = [paired, wle, wba].filter(Boolean);
+    const latest = [...sources].sort((a, b) =>
+      new Date(b.updated_at || 0) - new Date(a.updated_at || 0))[0];
+    return {
+      wleTest: (paired?.test_firmware_count || 0) + (wle?.test_firmware_count || 0),
+      wbaTest: (paired?.test_firmware_count || 0) + (wba?.test_firmware_count || 0),
+      wleDiagnostics: (paired?.diagnostics_firmware_count || 0) + (wle?.diagnostics_firmware_count || 0),
+      wbaDiagnostics: (paired?.diagnostics_firmware_count || 0) + (wba?.diagnostics_firmware_count || 0),
+      diagnosticsNumber: latest?.diagnostics_number,
+      updatedAt: latest?.updated_at,
+    };
+  };
   const sensorStages = [
     'getSensorIC', 'sht41', 'ens210', 'lps22df', 'bme690',
     'testButton', 'testGreenLED', 'testOrangeLED', 'testBuzzer', 'testSPI',
@@ -162,14 +202,18 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
       align: 'center', render: (value) => resultTag(value, t) },
     { title: t.testTime, dataIndex: 'started_at', width: 170,
       render: (value) => taipeiDateTime(value, language) },
-    { title: t.testFirmwareFlash, key: 'test_firmware_count', align: 'right', width: 180,
-      render: (_, record) => flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.test_firmware_count ?? 0 },
-    { title: t.diagnosticsFirmwareFlash, key: 'diagnostics_firmware_count', align: 'right', width: 210,
-      render: (_, record) => flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.diagnostics_firmware_count ?? 0 },
+    { title: t.wleTestFirmwareFlash, key: 'wle_test_firmware_count', align: 'right', width: 190,
+      render: (_, record) => flashDataForRun(record).wleTest },
+    { title: t.wbaTestFirmwareFlash, key: 'wba_test_firmware_count', align: 'right', width: 190,
+      render: (_, record) => flashDataForRun(record).wbaTest },
+    { title: t.wleDiagnosticsFirmwareFlash, key: 'wle_diagnostics_firmware_count', align: 'right', width: 220,
+      render: (_, record) => flashDataForRun(record).wleDiagnostics },
+    { title: t.wbaDiagnosticsFirmwareFlash, key: 'wba_diagnostics_firmware_count', align: 'right', width: 220,
+      render: (_, record) => flashDataForRun(record).wbaDiagnostics },
     { title: t.diagnosticsSerialNumber, key: 'diagnostics_number', width: 200,
-      render: (_, record) => flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.diagnostics_number || '-' },
+      render: (_, record) => flashDataForRun(record).diagnosticsNumber || '-' },
     { title: t.firmwareFlashTime, key: 'firmware_flash_time', width: 190,
-      render: (_, record) => taipeiDateTime(flashRecordByPcba.get(`${record.serial_wle}\u0000${record.serial_wba}`)?.updated_at, language) },
+      render: (_, record) => taipeiDateTime(flashDataForRun(record).updatedAt, language) },
     ...sensorStages.map((stage) => ({
       title: t.sensorIQC?.[stage] || stage,
       key: stage,
@@ -200,7 +244,8 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
 
   return <>
     <RecordFilters filters={filters} setFilters={setFilters} onSearch={fetchRecords}
-      onExport={exportCsv} loading={loading} exporting={exporting}
+      onExport={exportCsv} onDeleteUploaded={deleteUploadedRecords}
+      loading={loading} exporting={exporting} deleting={deleting}
       t={t} serialPlaceholder={t.serialWle} />
     <Table
       columns={columns}
@@ -218,7 +263,7 @@ const SensorRunList = ({ refreshTrigger, t, language }) => {
           />
         ),
       }}
-      scroll={{ x: 2850 }}
+      scroll={{ x: 3250 }}
       pagination={{ pageSize: 10, showTotal: (total) => `${t.total} ${total} ${t.items}` }}
     />
   </>;

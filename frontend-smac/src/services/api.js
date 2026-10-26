@@ -59,6 +59,7 @@ export const testRecordsAPI = {
   }),
   getSensorTestRunStats: () => api.get('/api/sensor/test-runs/stats'),
   deleteSensorTestRun: (id) => api.delete(`/api/sensor/test-runs/${id}`),
+  deleteUploadedSensorTestRuns: () => api.delete('/api/sensor/test-runs/uploaded'),
   getCloudStatus: () => api.get('/api/cloud/status'),
   getFirmwareFlashCounts: (serialNumber) => api.get(`/api/firmware-flashes/${serialNumber}`),
   getFirmwareFlashRecords: () => api.get('/api/firmware-flashes/'),

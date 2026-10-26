@@ -101,6 +101,24 @@ class FirmwareFlashRecord(Base):
     )
 
 
+class FirmwareFlashTargetRecord(Base):
+    """Successful flashes recorded when only one MCU is connected to an ST-Link."""
+    __tablename__ = "firmware_flash_target_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mcu_type = Column(String(8), nullable=False, comment="WLE or WBA")
+    serial_number = Column(String(100), nullable=False, index=True)
+    test_firmware_count = Column(Integer, nullable=False, default=0)
+    diagnostics_firmware_count = Column(Integer, nullable=False, default=0)
+    diagnostics_number = Column(String(8), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("mcu_type", "serial_number", name="uq_firmware_flash_target"),
+    )
+
+
 class SensorTestRun(Base):
     """一次完整或單項 Sensor IQC 執行。"""
     __tablename__ = "sensor_test_runs"
