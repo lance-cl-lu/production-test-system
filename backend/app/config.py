@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     CLOUD_API_KEY: str = ""
     CLOUD_SYNC_BATCH_SIZE: int = 100
     CLOUD_SYNC_INTERVAL_SECONDS: int = 10
+
+    # Sensor watcher is launched only when its native executable is available
+    # beside the backend (or SENSOR_WATCHER_EXECUTABLE points to it).
+    AUTO_START_SENSOR_WATCHER: bool = True
+    SENSOR_WATCHER_EXECUTABLE: str = ""
     
     # Scheduler
     UPLOAD_SCHEDULE_HOURS: int = 1

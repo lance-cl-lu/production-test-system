@@ -38,6 +38,8 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
   const [wbaUartPort, setWbaUartPort] = useState('');
   const [detectingUart, setDetectingUart] = useState(false);
   const [uartDetected, setUartDetected] = useState(false);
+  const [watcherRunning, setWatcherRunning] = useState(null);
+  const [watcherControlBusy, setWatcherControlBusy] = useState(false);
   const [uartDetectionLogs, setUartDetectionLogs] = useState([]);
   const [finalTestResult, setFinalTestResult] = useState(null);
   const readTimeoutRef = useRef(null);
@@ -74,6 +76,22 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     temperature: 0,
     pressure: 0,
   });
+
+  useEffect(() => {
+    let active = true;
+    const refreshWatcherStatus = () => {
+      testRecordsAPI.getSensorUartStatus()
+        .then(() => { if (active) setWatcherRunning(true); })
+        .catch(() => { if (active) setWatcherRunning(false); });
+    };
+
+    refreshWatcherStatus();
+    const intervalId = setInterval(refreshWatcherStatus, 3000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -527,6 +545,32 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     }
   };
 
+  const handleSensorWatcherControl = async () => {
+    const action = watcherRunning ? 'restart' : 'start';
+    setWatcherControlBusy(true);
+    if (action === 'restart') {
+      setUartDetected(false);
+      setWleUartPort('');
+      setWbaUartPort('');
+    }
+    try {
+      await testRecordsAPI.controlSensorWatcher(action);
+      setWatcherRunning(true);
+      message.success(action === 'restart'
+        ? t.sensorIQC.sensorWatcherRestartSuccess
+        : t.sensorIQC.sensorWatcherStartSuccess);
+      await handleDetectUart();
+    } catch (error) {
+      console.error(`Failed to ${action} sensor_watcher:`, error);
+      message.error(error.response?.data?.detail || t.sensorIQC.sensorWatcherControlFailed);
+      testRecordsAPI.getSensorUartStatus()
+        .then(() => setWatcherRunning(true))
+        .catch(() => setWatcherRunning(false));
+    } finally {
+      setWatcherControlBusy(false);
+    }
+  };
+
   const runSingleStage = async (stageKey) => {
     if (!uartDetected || testing || detectingUart) return;
     const sn = serialWle.trim();
@@ -928,6 +972,25 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
               <Card
                 size="small"
                 title={t.sensorIQC.uartDetectionTitle}
+                extra={(
+                  <Space size={8}>
+                    <Tag color={watcherRunning === null ? 'default' : watcherRunning ? 'success' : 'error'}>
+                      {t.sensorIQC.sensorWatcherStatus}: {watcherRunning === null
+                        ? t.sensorIQC.sensorWatcherUnknown
+                        : watcherRunning
+                          ? t.sensorIQC.sensorWatcherRunning
+                          : t.sensorIQC.sensorWatcherStopped}
+                    </Tag>
+                    <Button
+                      size="small"
+                      onClick={handleSensorWatcherControl}
+                      loading={watcherControlBusy}
+                      disabled={watcherRunning === null || testing || readingSerial || runningStage !== null || detectingUart}
+                    >
+                      {watcherRunning ? 'Restart' : 'Start'}
+                    </Button>
+                  </Space>
+                )}
                 styles={{ header: { minHeight: 36, padding: '0 12px' }, body: { padding: 12 } }}
               >
                 <Row gutter={[8, 4]} align="middle">

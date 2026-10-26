@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models import CloudSyncOutbox, SensorTestRun, SensorTestItem
 from app.schemas import SensorTestRunResponse
 from app.time_utils import format_taipei, taipei_today_start_utc, to_utc_naive, utc_iso, utc_now
+from app.sensor_watcher_manager import start_sensor_watcher
 import csv
 import io
 import json
@@ -25,6 +26,23 @@ active_sensor_run_ids: Dict[str, int] = {}
 pending_read_started_at: Optional[datetime] = None
 stage_request_states: Dict[str, Dict[str, Any]] = {}
 uart_detection_requests: Dict[str, Dict[str, Any]] = {}
+
+
+@router.post("/watcher/{action}")
+async def control_sensor_watcher(action: Literal["start", "restart"]):
+    """Start or restart the local sensor_watcher process."""
+    try:
+        running = await start_sensor_watcher(force_restart=(action == "restart"))
+    except RuntimeError as exc:
+        logger.warning("Unable to %s sensor_watcher: %s", action, exc)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if not running:
+        raise HTTPException(
+            status_code=503,
+            detail="sensor_watcher did not start; check its executable and connected serial ports",
+        )
+    return {"status": "running", "action": action}
 
 SENSOR_RESULT_STAGES = [
     "getSensorIC", "sht41", "ens210", "lps22df", "bme690",

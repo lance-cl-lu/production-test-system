@@ -47,6 +47,7 @@ export const testRecordsAPI = {
     if (!response.ok) throw new Error(`UART status service returned HTTP ${response.status}`);
     return { data: await response.json() };
   },
+  controlSensorWatcher: (action) => api.post(`/api/sensor/watcher/${action}`),
   getSensorUartDetection: (requestId) => api.get(`/api/sensor/detect-uart/${requestId}`),
   getLatestSensorSerial: () => api.get('/api/sensor/serial-found/latest'),
   runSensorStage: (data) => api.post('/api/sensor/run-stage', data),

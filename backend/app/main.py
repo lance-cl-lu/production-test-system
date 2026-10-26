@@ -6,6 +6,7 @@ from app.database import init_db
 from app.routers import test_records, websocket
 from app.routers import cloud_status, firmware_flashes, pcba_events, sensor_events
 from app.scheduler import start_scheduler, stop_scheduler
+from app.sensor_watcher_manager import start_sensor_watcher, stop_sensor_watcher
 
 
 @asynccontextmanager
@@ -15,10 +16,17 @@ async def lifespan(app: FastAPI):
     print("Starting up...")
     init_db()  # 初始化資料庫
     start_scheduler()  # 啟動排程器
-    yield
-    # 關閉時執行
-    print("Shutting down...")
-    stop_scheduler()  # 停止排程器
+    if settings.AUTO_START_SENSOR_WATCHER:
+        await start_sensor_watcher()
+    else:
+        print("Automatic sensor_watcher startup is disabled")
+    try:
+        yield
+    finally:
+        # 關閉時只停止由這個 Backend 啟動的 watcher。
+        print("Shutting down...")
+        await stop_sensor_watcher()
+        stop_scheduler()  # 停止排程器
 
 
 app = FastAPI(
