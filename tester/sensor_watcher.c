@@ -7,7 +7,7 @@
  * serial port 在啟動時開一次並常駐，避免反覆開關 tty 造成裝置重置
  *
  * 編譯：make sensor_watcher
- * 執行：cd tester && ./sensor_watcher [--port WLE_UART] [--port2 WBA_UART] [--debug] [--simulate]
+ * 執行：cd tester && ./sensor_watcher [--auto | --port WLE_UART [--port2 WBA_UART]] [--debug] [--simulate]
  *
  * 流程：
  *   1. 輪詢 ../shared/sensor_test.txt，等待後端寫入 "SEARCH" 或 "TEST <SERIAL>"
@@ -221,7 +221,7 @@ static void *uart_status_server_thread(void *unused)
                     cors_origin);
             } else if (strncmp(request, "GET /api/uart-status ", 21) == 0 ||
                        strncmp(request, "GET /health ", 12) == 0) {
-                int detected = dual_uart_mode && consoles_detected;
+                int detected = consoles_detected;
                 char body[768];
                 snprintf(body, sizeof(body),
                     "{\"status\":\"%s\",\"port_wle\":\"%s\",\"port_wba\":\"%s\"}",
@@ -269,20 +269,28 @@ static int start_uart_status_server(void) {
 static void handle_detect_command(const char *request_id) {
     const char *detected_port_wle = active_port_wle;
     const char *detected_port_wba = active_port_wba;
+    char resolved_port_wle[256] = "";
+    char resolved_port_wba[256] = "";
     char payload[768];
     int result = -1;
 
-    printf("\n[UART] Detecting MCU types on startup UARTs %s and %s...\n",
-           active_port_wle, active_port_wba);
-    if (dual_uart_mode && uart_fd != PLATFORM_UART_INVALID &&
-        uart_fd2 != PLATFORM_UART_INVALID) {
+    printf("\n[UART] Detecting MCU type(s) on startup UARTs %s%s%s...\n",
+           active_port_wle, active_port_wba[0] ? " and " : "", active_port_wba);
+    if (uart_fd != PLATFORM_UART_INVALID &&
+        (!dual_uart_mode || uart_fd2 != PLATFORM_UART_INVALID)) {
         result = detect_console_layout(&detected_port_wle, &detected_port_wba);
         if (result == 0) {
-            snprintf(active_port_wle, sizeof(active_port_wle), "%s", detected_port_wle);
-            snprintf(active_port_wba, sizeof(active_port_wba), "%s", detected_port_wba);
+            snprintf(resolved_port_wle, sizeof(resolved_port_wle), "%s", detected_port_wle);
+            snprintf(active_port_wle, sizeof(active_port_wle), "%s", resolved_port_wle);
+            if (dual_uart_mode) {
+                snprintf(resolved_port_wba, sizeof(resolved_port_wba), "%s", detected_port_wba);
+                snprintf(active_port_wba, sizeof(active_port_wba), "%s", resolved_port_wba);
+            } else {
+                snprintf(active_port_wba, sizeof(active_port_wba), "%s", "IPC passthrough via WLE");
+            }
         }
     } else {
-        fprintf(stderr, "[UART][ERROR] Start sensor_watcher with both --port and --port2 before detection\n");
+        fprintf(stderr, "[UART][ERROR] Configured UART port(s) are not open\n");
     }
     snprintf(payload, sizeof(payload),
              "{\"request_id\":\"%s\",\"status\":\"%s\",\"port_wle\":\"%s\",\"port_wba\":\"%s\"}",
@@ -870,11 +878,12 @@ void process_command(const char *line) {
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "usage: %s [--port PORT|auto] [--port2 PORT] [--list-ports] [--command-file PATH] "
-                    "[--lock-file PATH] [--api-base-url URL] [--debug] [--simulate]\n", prog);
+                    "[--lock-file PATH] [--api-base-url URL] [--auto] [--debug] [--simulate]\n", prog);
     fprintf(stderr, "  --port   serial port (default: %s); auto requires exactly one candidate\n",
             UART_HVF_DEFAULT_PORT);
     fprintf(stderr, "  --port2  optional second MCU UART; with --port, SEARCH reads WLE/WBA directly\n");
     fprintf(stderr, "  --list-ports  list detected serial ports and exit\n");
+    fprintf(stderr, "  --auto   detect ports: one WLE port uses IPC passthrough; two ports use direct WLE/WBA UARTs\n");
     fprintf(stderr, "  --simulate  run without UART hardware and generate passing test data\n");
 }
 
@@ -890,15 +899,20 @@ int main(int argc, char **argv) {
     const char *port2 = NULL;
     char detected_ports[64][128];
     int list_ports = 0;
+    int auto_mode = 0;
+    int explicit_port = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = argv[++i];
+            explicit_port = 1;
         } else if (strcmp(argv[i], "--port2") == 0 && i + 1 < argc) {
             port2 = argv[++i];
             dual_uart_mode = 1;
         } else if (strcmp(argv[i], "--list-ports") == 0) {
             list_ports = 1;
+        } else if (strcmp(argv[i], "--auto") == 0) {
+            auto_mode = 1;
         } else if (strcmp(argv[i], "--command-file") == 0 && i + 1 < argc) {
             command_file = argv[++i];
         } else if (strcmp(argv[i], "--lock-file") == 0 && i + 1 < argc) {
@@ -923,6 +937,22 @@ int main(int argc, char **argv) {
     if (list_ports) {
         print_uart_ports(detected_ports, 64);
         return 0;
+    }
+    if (auto_mode && (explicit_port || port2 != NULL)) {
+        fprintf(stderr, "[ERROR] --auto cannot be combined with --port or --port2\n");
+        return 2;
+    }
+    if (!simulate_mode && auto_mode) {
+        int count = print_uart_ports(detected_ports, 64);
+        if (count != 1 && count != 2) {
+            fprintf(stderr, "[ERROR] --auto requires exactly one or two serial ports; detected %d\n", count);
+            return 2;
+        }
+        port = detected_ports[0];
+        if (count == 2) {
+            port2 = detected_ports[1];
+            dual_uart_mode = 1;
+        }
     }
     if (!simulate_mode && strcmp(port, "auto") == 0) {
         int count = print_uart_ports(detected_ports, 64);
@@ -970,7 +1000,8 @@ int main(int argc, char **argv) {
             (!dual_uart_mode || uart_fd2 != PLATFORM_UART_INVALID)) {
             detect_console_layout(&port, &port2);
             snprintf(active_port_wle, sizeof(active_port_wle), "%s", port);
-            snprintf(active_port_wba, sizeof(active_port_wba), "%s", port2 ? port2 : "");
+            snprintf(active_port_wba, sizeof(active_port_wba), "%s",
+                     dual_uart_mode ? port2 : "IPC passthrough via WLE");
         }
     }
 

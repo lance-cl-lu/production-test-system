@@ -23,12 +23,19 @@ List ports:
 sensor_watcher.exe --list-ports
 ```
 
-Windows defaults to `--port auto`. Auto-selection succeeds only when exactly one serial
-port exists; it deliberately refuses to send commands when multiple ports are present.
-Select explicitly in that case:
+Use `--auto` to select the wiring mode from the detected port count. One port is treated as
+the WLE console and reads WBA through IPC passthrough; two ports are identified and mapped
+to direct WLE/WBA consoles. Other counts are rejected. The legacy `--port auto` option still
+requires exactly one port. To select one port explicitly:
 
 ```powershell
 sensor_watcher.exe --port COM5
+```
+
+Automatic one-port or two-port selection:
+
+```powershell
+sensor_watcher.exe --auto
 ```
 
 When WLE and WBA are connected to separate UARTs, pass both ports. `--port` is the WLE
