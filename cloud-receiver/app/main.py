@@ -1,9 +1,12 @@
 import os
+import csv
+import io
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, case, create_engine, func
@@ -72,6 +75,7 @@ app.add_middleware(
     allow_origins=["http://localhost:3100", "http://127.0.0.1:3100"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -199,3 +203,74 @@ def sensor_runs(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500
         CloudSensorRun.started_at.desc()
     ).offset(skip).limit(limit).all()
     return [serialize_run(run) for run in runs]
+
+
+@app.get("/api/v1/sensor-runs/export.csv")
+def export_sensor_runs_csv():
+    """Stream every cloud test run and its stage results as an Excel-friendly CSV."""
+    stages = [
+        "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
+        "testButton", "testGreenLED", "testOrangeLED", "testBuzzer", "testSPI",
+    ]
+    sensors = ["sht41", "ens210", "lps22df", "bme690"]
+    base_columns = [
+        "serial_wle", "serial_wba", "test_result", "run_mode", "requested_stage",
+        "started_at", "completed_at", "synced_at",
+    ]
+    sensor_columns = [f"{sensor}_{field}" for sensor in sensors for field in (
+        "status", "temperature_c", "humidity_percent", "pressure_hpa", "gas_resistance_ohm",
+    )]
+    columns = base_columns + [f"{stage}_status" for stage in stages] + sensor_columns
+
+    def rows():
+        db = SessionLocal()
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        try:
+            yield "\ufeff"
+            writer.writerow(columns)
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+            cursor = db.query(func.max(CloudSensorRun.id)).scalar()
+            while cursor is not None:
+                batch_ids = [row.id for row in db.query(CloudSensorRun.id).filter(
+                    CloudSensorRun.id <= cursor
+                ).order_by(CloudSensorRun.id.desc()).limit(100).all()]
+                if not batch_ids:
+                    break
+                runs = db.query(CloudSensorRun).options(selectinload(CloudSensorRun.items)).filter(
+                    CloudSensorRun.id.in_(batch_ids)
+                ).order_by(CloudSensorRun.id.desc()).all()
+                for run in runs:
+                    items = {item.stage: item for item in run.items}
+                    row = [
+                        run.serial_wle, run.serial_wba or "", run.test_result, run.run_mode,
+                        run.requested_stage or "", utc_iso(run.started_at), utc_iso(run.completed_at),
+                        utc_iso(run.synced_at),
+                    ]
+                    row.extend(items[stage].status if stage in items else "" for stage in stages)
+                    for sensor in sensors:
+                        item = items.get(sensor)
+                        row.extend([
+                            item.status if item else "",
+                            item.temperature_c if item else "",
+                            item.humidity_percent if item else "",
+                            item.pressure_hpa if item else "",
+                            item.gas_resistance_ohm if item else "",
+                        ])
+                    writer.writerow(row)
+                    yield buffer.getvalue()
+                    buffer.seek(0)
+                    buffer.truncate(0)
+                cursor = batch_ids[-1] - 1
+        finally:
+            db.close()
+
+    filename = f"sensor_test_records_{datetime.now(TAIPEI_TZ):%Y%m%d}.csv"
+    return StreamingResponse(
+        rows(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
