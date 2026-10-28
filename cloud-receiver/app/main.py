@@ -198,15 +198,31 @@ def stats(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/sensor-runs")
 def sensor_runs(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+                serial_wle: Optional[str] = None, test_result: Optional[str] = None,
+                start_date: Optional[str] = None, end_date: Optional[str] = None,
                 db: Session = Depends(get_db)):
-    runs = db.query(CloudSensorRun).options(selectinload(CloudSensorRun.items)).order_by(
-        CloudSensorRun.started_at.desc()
-    ).offset(skip).limit(limit).all()
+    query = filtered_sensor_runs(db, serial_wle, test_result, start_date, end_date)
+    runs = query.order_by(CloudSensorRun.started_at.desc()).offset(skip).limit(limit).all()
     return [serialize_run(run) for run in runs]
 
 
+def filtered_sensor_runs(db: Session, serial_wle: Optional[str], test_result: Optional[str],
+                         start_date: Optional[str], end_date: Optional[str]):
+    query = db.query(CloudSensorRun).options(selectinload(CloudSensorRun.items))
+    if serial_wle:
+        query = query.filter(CloudSensorRun.serial_wle == serial_wle.strip())
+    if test_result:
+        query = query.filter(CloudSensorRun.test_result == test_result.upper())
+    if start_date:
+        query = query.filter(CloudSensorRun.started_at >= parse_datetime(start_date))
+    if end_date:
+        query = query.filter(CloudSensorRun.started_at <= parse_datetime(end_date))
+    return query
+
+
 @app.get("/api/v1/sensor-runs/export.csv")
-def export_sensor_runs_csv():
+def export_sensor_runs_csv(serial_wle: Optional[str] = None, test_result: Optional[str] = None,
+                           start_date: Optional[str] = None, end_date: Optional[str] = None):
     """Stream every cloud test run and its stage results as an Excel-friendly CSV."""
     stages = [
         "getSensorIC", "sht41", "ens210", "lps22df", "bme690",
@@ -233,16 +249,21 @@ def export_sensor_runs_csv():
             buffer.seek(0)
             buffer.truncate(0)
 
-            cursor = db.query(func.max(CloudSensorRun.id)).scalar()
+            base_query = filtered_sensor_runs(db, serial_wle, test_result, start_date, end_date)
+            cursor = base_query.with_entities(func.max(CloudSensorRun.id)).scalar()
             while cursor is not None:
-                batch_ids = [row.id for row in db.query(CloudSensorRun.id).filter(
+                batch_ids = [row.id for row in filtered_sensor_runs(
+                    db, serial_wle, test_result, start_date, end_date
+                ).with_entities(CloudSensorRun.id).filter(
                     CloudSensorRun.id <= cursor
                 ).order_by(CloudSensorRun.id.desc()).limit(100).all()]
                 if not batch_ids:
                     break
-                runs = db.query(CloudSensorRun).options(selectinload(CloudSensorRun.items)).filter(
-                    CloudSensorRun.id.in_(batch_ids)
-                ).order_by(CloudSensorRun.id.desc()).all()
+                runs = filtered_sensor_runs(
+                    db, serial_wle, test_result, start_date, end_date
+                ).filter(CloudSensorRun.id.in_(batch_ids)).order_by(
+                    CloudSensorRun.id.desc()
+                ).all()
                 for run in runs:
                     items = {item.stage: item for item in run.items}
                     row = [
