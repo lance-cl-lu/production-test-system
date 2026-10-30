@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """Local bridge for running the host ST-Link flashing script from the UI."""
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
+try:
+    from http.server import ThreadingHTTPServer
+except ImportError:  # Python < 3.7
+    from http.server import HTTPServer
+    from socketserver import ThreadingMixIn
+
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
 import json
 import os
 from pathlib import Path
@@ -85,7 +93,8 @@ def _find_watcher_pids(executable):
         )
         result = subprocess.run(
             [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, timeout=8, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=8, check=False,
         )
         return [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
@@ -105,7 +114,8 @@ def _find_watcher_pids(executable):
         return []
     listeners = subprocess.run(
         [lsof, "-nP", "-t", "-iTCP:8766", "-sTCP:LISTEN"],
-        capture_output=True, text=True, timeout=5, check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True, timeout=5, check=False,
     )
     pids = []
     for line in listeners.stdout.splitlines():
@@ -114,7 +124,8 @@ def _find_watcher_pids(executable):
         pid = int(line)
         opened = subprocess.run(
             [lsof, "-nP", "-a", "-p", str(pid), "-d", "txt", "-Fn"],
-            capture_output=True, text=True, timeout=5, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=5, check=False,
         )
         paths = [entry[1:] for entry in opened.stdout.splitlines() if entry.startswith("n")]
         if any(os.path.normcase(os.path.realpath(path)) == expected_path for path in paths):
@@ -137,7 +148,10 @@ def _terminate_pid(pid):
     if os.name == "nt":
         taskkill = shutil.which("taskkill.exe") or shutil.which("taskkill")
         if taskkill:
-            subprocess.run([taskkill, "/PID", str(pid), "/T", "/F"], capture_output=True, check=False)
+            subprocess.run(
+                [taskkill, "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
     else:
         try:
             os.kill(pid, signal.SIGKILL)
@@ -305,7 +319,7 @@ class FlashHandler(BaseHTTPRequestHandler):
                 cwd=str(ROOT_DIR),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                universal_newlines=True,
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
