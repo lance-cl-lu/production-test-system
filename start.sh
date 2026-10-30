@@ -5,13 +5,26 @@ FLASH_AGENT_PID_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.pid"
 FLASH_AGENT_LOG_FILE="${TMPDIR:-/tmp}/production-test-flash-agent.log"
 PYTHON_COMMAND=()
 
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON_COMMAND=(python3)
-elif command -v python >/dev/null 2>&1; then
-    PYTHON_COMMAND=(python)
-elif command -v py >/dev/null 2>&1; then
-    PYTHON_COMMAND=(py -3)
-fi
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if command -v py >/dev/null 2>&1; then
+            PYTHON_COMMAND=(py -3)
+        elif command -v python3 >/dev/null 2>&1; then
+            PYTHON_COMMAND=(python3)
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON_COMMAND=(python)
+        fi
+        ;;
+    *)
+        if command -v python3 >/dev/null 2>&1; then
+            PYTHON_COMMAND=(python3)
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON_COMMAND=(python)
+        elif command -v py >/dev/null 2>&1; then
+            PYTHON_COMMAND=(py -3)
+        fi
+        ;;
+esac
 
 # 優先使用 Docker Compose v2 (docker compose)，找不到才退回 v1 (docker-compose)
 if docker compose version >/dev/null 2>&1; then
@@ -95,6 +108,7 @@ else
     if [ ${#PYTHON_COMMAND[@]} -eq 0 ]; then
         echo "   ⚠️ 找不到 Python；請安裝 Python 3 後重新執行 ./start.sh。"
     else
+        echo "   使用 Python 命令: ${PYTHON_COMMAND[*]}"
         nohup "${PYTHON_COMMAND[@]}" "${SCRIPT_DIR}/flash_agent.py" >>"${FLASH_AGENT_LOG_FILE}" 2>&1 </dev/null &
         echo $! >"${FLASH_AGENT_PID_FILE}"
         for _ in {1..10}; do
