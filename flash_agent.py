@@ -2,12 +2,17 @@
 """Local bridge for running the host ST-Link flashing script from the UI."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import threading
+import time
+from urllib.error import URLError
+from urllib.request import urlopen
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -15,6 +20,8 @@ FLASH_SCRIPT = ROOT_DIR / "flash_smac.sh"
 HOST = "127.0.0.1"
 PORT = 8765
 _flash_lock = threading.Lock()
+_watcher_lock = threading.Lock()
+_watcher_process = None
 _allowed_origins = {
     "http://localhost:3000",
     "http://localhost:3001",
@@ -46,6 +53,166 @@ def _bash_executable():
     return shutil.which("bash") or "bash"
 
 
+def _watcher_executable():
+    configured = os.environ.get("SENSOR_WATCHER_EXECUTABLE")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    name = "sensor_watcher.exe" if os.name == "nt" else "sensor_watcher"
+    return ROOT_DIR / "tester" / name
+
+
+def _watcher_running():
+    try:
+        with urlopen("http://127.0.0.1:8766/health", timeout=0.4) as response:
+            return response.status == 200
+    except (OSError, URLError):
+        return False
+
+
+def _find_watcher_pids(executable):
+    expected_path = os.path.normcase(os.path.realpath(executable))
+    if os.name == "nt":
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        if not powershell:
+            return []
+        escaped_path = os.path.realpath(executable).replace("'", "''")
+        script = (
+            f"$target = '{escaped_path}'; Get-CimInstance Win32_Process | "
+            "Where-Object { $_.ExecutablePath -and "
+            "[String]::Equals([IO.Path]::GetFullPath($_.ExecutablePath), "
+            "$target, [StringComparison]::OrdinalIgnoreCase) } | "
+            "Select-Object -ExpandProperty ProcessId"
+        )
+        result = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=8, check=False,
+        )
+        return [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
+
+    if sys.platform.startswith("linux"):
+        pids = []
+        for process_path in Path("/proc").glob("[0-9]*/exe"):
+            try:
+                actual_path = os.path.normcase(os.path.realpath(process_path.resolve(strict=True)))
+                if actual_path == expected_path:
+                    pids.append(int(process_path.parent.name))
+            except (OSError, ValueError):
+                continue
+        return pids
+
+    lsof = shutil.which("lsof")
+    if not lsof:
+        return []
+    listeners = subprocess.run(
+        [lsof, "-nP", "-t", "-iTCP:8766", "-sTCP:LISTEN"],
+        capture_output=True, text=True, timeout=5, check=False,
+    )
+    pids = []
+    for line in listeners.stdout.splitlines():
+        if not line.strip().isdigit():
+            continue
+        pid = int(line)
+        opened = subprocess.run(
+            [lsof, "-nP", "-a", "-p", str(pid), "-d", "txt", "-Fn"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        paths = [entry[1:] for entry in opened.stdout.splitlines() if entry.startswith("n")]
+        if any(os.path.normcase(os.path.realpath(path)) == expected_path for path in paths):
+            pids.append(pid)
+    return pids
+
+
+def _terminate_pid(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    if os.name == "nt":
+        taskkill = shutil.which("taskkill.exe") or shutil.which("taskkill")
+        if taskkill:
+            subprocess.run([taskkill, "/PID", str(pid), "/T", "/F"], capture_output=True, check=False)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _stop_watcher():
+    global _watcher_process
+    process = _watcher_process
+    _watcher_process = None
+    if process is not None and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+    else:
+        executable = _watcher_executable()
+        pids = _find_watcher_pids(executable)
+        if not pids:
+            raise RuntimeError("Watcher is responding, but its executable could not be identified safely")
+        for pid in pids:
+            _terminate_pid(pid)
+
+    for _ in range(30):
+        if not _watcher_running():
+            return
+        time.sleep(0.1)
+    raise RuntimeError("sensor_watcher did not stop; refusing to start another instance")
+
+
+def _start_watcher(restart=False):
+    global _watcher_process
+    with _watcher_lock:
+        if _watcher_running() and not restart:
+            return {"status": "running", "action": "start"}
+        if _watcher_running():
+            _stop_watcher()
+
+        executable = _watcher_executable()
+        if not executable.is_file():
+            raise FileNotFoundError(
+                f"sensor_watcher executable not found: {executable}; build it first or set SENSOR_WATCHER_EXECUTABLE"
+            )
+        if os.name != "nt" and not os.access(executable, os.X_OK):
+            raise PermissionError(f"sensor_watcher is not executable: {executable}")
+
+        options = {}
+        creationflags = 0
+        if os.name == "nt":
+            creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+                subprocess, "DETACHED_PROCESS", 0
+            )
+        else:
+            options["start_new_session"] = True
+        _watcher_process = subprocess.Popen(
+            [str(executable), "--auto"],
+            cwd=str(executable.parent),
+            stdin=subprocess.DEVNULL,
+            creationflags=creationflags,
+            **options,
+        )
+        for _ in range(150):
+            if _watcher_running():
+                return {"status": "running", "action": "restart" if restart else "start"}
+            if _watcher_process.poll() is not None:
+                code = _watcher_process.returncode
+                _watcher_process = None
+                raise RuntimeError(f"sensor_watcher exited during startup (exit code {code}); check serial ports")
+            time.sleep(0.1)
+        raise RuntimeError("sensor_watcher did not expose its status endpoint within 15 seconds")
+
+
 class FlashHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
 
@@ -54,6 +221,15 @@ class FlashHandler(BaseHTTPRequestHandler):
         if origin in _allowed_origins:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
+
+    def _send_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self._cors_headers()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -66,7 +242,7 @@ class FlashHandler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self.send_error(404)
             return
-        body = b"{\"status\":\"ready\",\"flash_script\":\"flash_smac.sh\"}"
+        body = b"{\"status\":\"ready\",\"flash_script\":\"flash_smac.sh\",\"sensor_watcher_control\":true}"
         self.send_response(200)
         self._cors_headers()
         self.send_header("Content-Type", "application/json")
@@ -75,6 +251,24 @@ class FlashHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        watcher_actions = {
+            "/api/sensor/watcher/start": False,
+            "/api/sensor/watcher/restart": True,
+        }
+        if self.path in watcher_actions:
+            try:
+                result = _start_watcher(restart=watcher_actions[self.path])
+                self._send_json(200, result)
+            except FileNotFoundError as error:
+                self._send_json(503, {"detail": str(error)})
+            except PermissionError as error:
+                self._send_json(503, {"detail": str(error)})
+            except RuntimeError as error:
+                self._send_json(409, {"detail": str(error)})
+            except (OSError, subprocess.SubprocessError) as error:
+                self._send_json(500, {"detail": f"sensor_watcher control failed: {error}"})
+            return
+
         modes = {
             "/api/firmware/hvf/flash": "hvf",
             "/api/firmware/diagnostics/flash": "diagnostics",

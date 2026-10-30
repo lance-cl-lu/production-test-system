@@ -1,0 +1,2 @@
+python3 ./sid_fwtool.py --upload SID ./container_SID_hw_2_0_3_wba_1_1_8_0_wle_1_2_7_0.bin /dev/ttyACMx
+python3 ./sid_fwtool.py --upload GEN2 ./container_GEN2_hw_2_0_3_wba_0_1_0_0_wle_0_1_0_0.bin /dev/ttyACMx

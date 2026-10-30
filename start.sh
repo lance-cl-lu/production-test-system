@@ -83,8 +83,8 @@ wait_for() {
 wait_for "後端 API  (8000)" "http://localhost:8000/docs"
 wait_for "前端 SMAC (3000)" "http://localhost:3000/"
 
-if curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
-    echo "   ✅ 主機燒錄服務已就緒 (8765)"
+if curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"sensor_watcher_control":true'; then
+    echo "   ✅ 主機燒錄 / Sensor watcher 控制服務已就緒 (8765)"
 else
     echo "🔌 啟動主機 ST-Link 燒錄服務..."
     if [ -f "${FLASH_AGENT_PID_FILE}" ]; then
@@ -99,12 +99,12 @@ else
         echo $! >"${FLASH_AGENT_PID_FILE}"
         for _ in {1..10}; do
             if curl -fsS "http://127.0.0.1:8765/health" >/dev/null 2>&1; then
-                echo "   ✅ 主機燒錄服務已就緒 (8765)"
+                echo "   ✅ 主機燒錄 / Sensor watcher 控制服務已就緒 (8765)"
                 break
             fi
             sleep 1
         done
-        if ! curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"flash_script":"flash_smac.sh"'; then
+        if ! curl -fsS "http://127.0.0.1:8765/health" 2>/dev/null | grep -q '"sensor_watcher_control":true'; then
             echo "   ⚠️ 主機燒錄服務啟動失敗；請查看 ${FLASH_AGENT_LOG_FILE}"
         fi
     fi

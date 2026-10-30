@@ -1,0 +1,19 @@
+{
+  "title": "SID Diagnostics FW programming",
+  "backend": "../../tools/stflash/stflash.py",
+  "cwd": "../../../../images",
+  "args": ["--wle-fw", "sid_diagnostics_stm32wl55.hex", "--wba-fw", "sid_diagnostics_stm32wba55.hex"],
+  "show_log": true,
+  "states": {
+    "idle":    {"text": "Ready",    "color": "gray"},
+    "running": {"text": "Running…", "color": "gold"},
+    "pass":    {"text": "PASS",     "color": "green"},
+    "fail":    {"text": "FAIL",     "color": "red"}
+  },
+  "progress": [
+    {"match": "^\\[INFO\\] ST-Link",   "text": "Detecting ST-Links…", "color": "gold"},
+    {"match": "^\\[INFO\\] \\[WLE\\]", "text": "WLE: programming…",   "color": "dodger blue"},
+    {"match": "^\\[INFO\\] \\[WBA\\]", "text": "WBA: programming…",   "color": "dodger blue"},
+    {"match": "^\\[ERROR\\] (.*)",     "text": "Error:\n{1}",         "color": "orange"}
+  ]
+}

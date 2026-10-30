@@ -141,6 +141,9 @@ make sensor_watcher
 # WLE 與 WBA 各自接到獨立 UART 時，SEARCH 直接使用兩邊的 console 讀取序號
 ./sensor_watcher --port /dev/tty.usbserial-WLE --port2 /dev/tty.usbserial-WBA
 
+# 自動偵測 UART 數量：一個 port 用 WLE + IPC passthrough；兩個 ports 用 WLE/WBA 各自直連
+./sensor_watcher --auto
+
 "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI" \
   -c "port=SWD index=0 freq=1000" \
   -w "/Users/lance/work/Github/production-test-system/fwpack-special/intertek001.bin" \
@@ -154,7 +157,7 @@ SmartAC-5G qFvV9zFbwgx8nCJsoK9m
 
 `--simulate` 會保留共享檔案與 HTTP/WebSocket 的完整流程，只將 UART 硬體交互換成模擬資料，適合本機開發與前後端整合測試。
 
-指定一個 UART 時維持舊流程：`--port` 連接 WLE，讀 WBA 序號時透過 IPC passthrough。若兩顆 MCU 各有獨立 UART，使用 `--port` 指定 WLE、`--port2` 指定 WBA；`SEARCH` 會在各自 console 直接下 `stm32_id_info`，不使用 IPC passthrough。Windows 雙 UART 也請明確指定兩個連接埠，例如 `--port COM5 --port2 COM6`。
+指定一個 UART 時維持舊流程：`--port` 連接 WLE，讀 WBA 序號時透過 IPC passthrough。`--auto` 會先列出 serial ports：只找到一個時將它當作 WLE UART 並使用 IPC passthrough；找到兩個時自動偵測哪個是 WLE/WBA，之後在各自 console 直接下 `stm32_id_info`。其他 port 數量會停止並提示，避免猜測。也可明確指定兩個 UART：`--port` 指定 WLE、`--port2` 指定 WBA。
 
 硬體模式啟動後、開始監看指令前，watcher 會在每個已設定的 UART 各執行一次 `hvf_version`，以回應 payload 的 MCU 名稱辨識 WLE/WBA（韌體後綴 `mle` 對應 WLE，`mba` 對應 WBA），並記住 UART 對應。雙 UART 即使參數順序相反也會自動調整；無法辨識或兩個 UART 回報相同 MCU 時會停用 `SEARCH`，避免回報錯誤序號。這次啟動辨識結果會沿用到 watcher 結束，不會每次 SEARCH 重跑版本查詢。
 
@@ -162,7 +165,11 @@ SmartAC-5G qFvV9zFbwgx8nCJsoK9m
 
 ### 整體架構
 
-後端不會直接啟動 watcher，兩者透過【共享檔案】與【HTTP 回報】解耦：
+Backend 啟動時會先檢查 `http://127.0.0.1:8766/health`。若 watcher 尚未執行，且 Backend 主機上找得到 `tester/sensor_watcher`（Windows 為 `sensor_watcher.exe`），就會以 `--auto` 啟動；Backend 關閉時也會停止自己啟動的 watcher。若執行檔放在其他位置，可在 Backend 設定 `SENSOR_WATCHER_EXECUTABLE`；設為 `AUTO_START_SENSOR_WATCHER=false` 可停用自動啟動。
+
+Sensor IQC 的 UART Detection 標題旁也會顯示 watcher 狀態，並提供 **Start** / **Restart**。Restart 會停止監聽 `8766` 的 watcher 程序，再重新以 `--auto` 啟動；若執行中的程序無法確認為設定的 watcher 執行檔，Backend 會拒絕終止它。
+
+Docker Backend 無法直接操作主機的序列埠，也不包含 watcher 執行檔，因此不會代替主機啟動 watcher。這種部署仍需在接有測試板的主機執行 watcher，或在該主機以原生方式執行 Backend。兩者透過【共享檔案】與【HTTP 回報】解耦：
 
 ```mermaid
 flowchart LR

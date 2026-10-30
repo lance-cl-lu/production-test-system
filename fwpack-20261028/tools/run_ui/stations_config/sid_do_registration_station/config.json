@@ -1,0 +1,21 @@
+{
+  "title": "SID registration",
+  "backend": "../../tools/sid_reg_wait/sid_reg_wait.py",
+  "args": ["--timeout", "300"],
+  "stlink_cache": "stlink_cache.json",
+  "show_log": true,
+  "states": {
+    "idle":    {"text": "Ready",    "color": "gray"},
+    "running": {"text": "Running…", "color": "gold"},
+    "pass":    {"text": "PASS",     "color": "green"},
+    "fail":    {"text": "FAIL",     "color": "red"}
+  },
+  "progress": [
+    {"match": "^\\[INFO\\] ST-Link",                                     "text": "Detecting ST-Links…",                 "color": "gold"},
+    {"match": "^(\\[INFO\\] )?\\[WLE\\] ",                               "text": "Resetting WLE…",                      "color": "dodger blue"},
+    {"match": "^(\\[INFO\\] )?\\[WBA\\] ",                               "text": "Resetting WBA…",                      "color": "dodger blue"},
+    {"match": "^\\[INFO\\] Waiting up to",                               "text": "Waiting for Sidewalk registration…",  "color": "gold"},
+    {"match": "^\\[WBA-UART\\] .*Registration status: not registered", "text": "Not registered yet, waiting…",        "color": "gold"},
+    {"match": "^\\[ERROR\\] (.*)",                                       "text": "Error:\n{1}",                         "color": "orange"}
+  ]
+}

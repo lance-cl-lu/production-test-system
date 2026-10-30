@@ -1,0 +1,44 @@
+# typedef enum
+# {
+#     OFF_NO_ERROR = 0,
+#     OFF_ERROR_GENERAL,
+#     OFF_NO_MEM,
+#     OFF_NOT_FOUND,
+#     OFF_ALREADY_EXIST,
+#     OFF_MISMATCH_VALUES,
+#     OFF_NO_FREE_SPACE,
+#     OFF_INCORRECT_PARAM,
+#     OFF_NOT_SUPPORTED,
+#     OFF_AGAIN,
+#     OFF_NO_DEVICE,
+# 	OFF_OUT_OF_RANGE,
+# 	OFF_IO,
+# 	OFF_INVALID_COND,
+# 	OFF_TIMEOUT,
+# 	OFF_BUSY,
+# 	OFF_PENDING,
+#     OFF_NOT_READY,
+#     OFF_ERROR_MAX
+# } off_error_t;
+
+OFF_ERROR_STRINGS = {
+    0: "OFF_NO_ERROR",
+    1: "OFF_ERROR_GENERAL",
+    2: "OFF_NO_MEM",
+    3: "OFF_NOT_FOUND",
+    4: "OFF_ALREADY_EXIST",
+    5: "OFF_MISMATCH_VALUES",
+    6: "OFF_NO_FREE_SPACE",
+    7: "OFF_INCORRECT_PARAM",
+    8: "OFF_NOT_SUPPORTED",
+    9: "OFF_AGAIN",
+    10: "OFF_NO_DEVICE",
+    11: "OFF_OUT_OF_RANGE",
+    12: "OFF_IO",
+    13: "OFF_INVALID_COND",
+    14: "OFF_TIMEOUT",
+    15: "OFF_BUSY",
+    16: "OFF_PENDING",
+    17: "OFF_NOT_READY",
+    18: "OFF_ERROR_MAX"
+}

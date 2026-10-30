@@ -1,0 +1,14 @@
+# Python packages for run_ui and the tools in tools/ (Python 3.10 or later):
+#   pip install -r smac_tools/run_ui/requirements.txt
+#
+# Not installable with pip, install them on the station PC separately:
+#   - tkinter (run_ui window): part of Python on Windows/macOS; Debian/Ubuntu: apt install python3-tk
+#   - STM32CubeProgrammer (STM32_Programmer_CLI): stflash, smac_mfg, sid_reg_wait, sid_secure_prog
+#     (sid_secure_prog also needs its WBA OTP alignment patched, see tools/sid_secure_prog/README.md)
+#   - objcopy (GNU binutils): combine_binaries / smac_mfg for .bin and .elf inputs; Debian/Ubuntu: apt install binutils
+
+# ST-Link virtual COM ports (sid_reg_wait)
+pyserial>=3.5
+
+# Ed25519 signature checks of the factory containers (sid_secure_prog, via smac_tools/signing)
+PyNaCl>=1.5

@@ -1,0 +1,24 @@
+{
+  "title": "SID secure programming — HW 2.0.2",
+  "backend": "../../tools/sid_secure_prog/sid_secure_prog.py",
+  "cwd": "../../../../images",
+  "args": ["--wle-boot", "wle_boot_release_hw_2_0_2.hex", "--wle-app", "wle_app_release_hw_2_0_2.hex", "--wba-boot", "wba_boot_release.hex", "--wba-app", "wba_app_release_ble.hex", "--sign-key", "sign_key_pub.pem", "--ext-flash", "nor_flash_image_hw_2_0_2.bin", "--app-window", "10"],
+  "show_log": true,
+  "states": {
+    "idle": {"text": "Ready", "color": "gray"},
+    "running": {"text": "Running…", "color": "gold"},
+    "pass": {"text": "PASS", "color": "green"},
+    "fail": {"text": "FAIL", "color": "red"}
+  },
+  "progress": [
+    {"match": "^\\[INFO\\] \\[STEP 1/8\\]", "text": "Checking files…", "color": "gold"},
+    {"match": "^\\[INFO\\] \\[STEP 2/8\\]", "text": "Detecting ST-Links…", "color": "gold"},
+    {"match": "^\\[INFO\\] \\[STEP 3/8\\]", "text": "WLE: programming…", "color": "dodger blue"},
+    {"match": "^\\[INFO\\] \\[STEP 4/8\\]", "text": "WBA: programming…", "color": "dodger blue"},
+    {"match": "^\\[INFO\\] \\[STEP 5/8\\]", "text": "Checking boot log…", "color": "gold"},
+    {"match": "^\\[INFO\\] \\[STEP 6/8\\]", "text": "Writing sign key to OTP…", "color": "dark orange"},
+    {"match": "^\\[INFO\\] \\[STEP 7/8\\]", "text": "Checking secure boot…", "color": "gold"},
+    {"match": "^\\[INFO\\] \\[STEP 8/8\\]", "text": "Locking (RDP level 1)…", "color": "dark orange"},
+    {"match": "^\\[ERROR\\] (.*)", "text": "Error:\n{1}", "color": "orange"}
+  ]
+}

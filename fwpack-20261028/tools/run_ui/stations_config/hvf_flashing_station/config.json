@@ -1,0 +1,19 @@
+{
+  "title": "HVF FW programming",
+  "backend": "../../tools/stflash/stflash.py",
+  "cwd": "../../../../images",
+  "args": ["--wba-fw", "WBA_smac_stm32wba5.hex", "--wle-fw", "WLE_smac_stm32wle5.hex"],
+  "show_log": true,
+  "states": {
+    "idle":    {"text": "Ready",    "color": "gray"},
+    "running": {"text": "Running…", "color": "gold"},
+    "pass":    {"text": "PASS",     "color": "green"},
+    "fail":    {"text": "FAIL",     "color": "red"}
+  },
+  "progress": [
+    {"match": "^\\[INFO\\] ST-Link",   "text": "Detecting ST-Links…", "color": "gold"},
+    {"match": "^\\[INFO\\] \\[WLE\\]", "text": "WLE: programming…",   "color": "dodger blue"},
+    {"match": "^\\[INFO\\] \\[WBA\\]", "text": "WBA: programming…",   "color": "dodger blue"},
+    {"match": "^\\[ERROR\\] (.*)",     "text": "Error:\n{1}",         "color": "orange"}
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "title": "SMAC MFG programming — HW 2.0.3",
+  "backend": "../../tools/smac_mfg/smac_mfg_flash.py",
+  "cwd": "../../../../images",
+  "args": ["--wle-boot", "wle_boot_release_hw_2_0_3.hex", "--wle-app", "wle_app_release_logs_hw_2_0_3.hex", "--wba-boot", "wba_boot_release.hex", "--wba-app", "wba_app_debug_no_ble.hex", "--ics", "{ics}", "--label", "{label}"],
+  "inputs": {
+    "ics": {"label": "Sensor ICs", "choices_from": {"file": "../../tools/gen_smac_mfg/gen_smac_mfg.py", "name": "IC_SENSOR_BITS"}},
+    "label": {"label": "Label", "pattern_from": {"file": "../../tools/gen_smac_mfg/gen_smac_mfg.py", "name": "LABEL_RE"}}
+  },
+  "show_log": true,
+  "states": {
+    "idle": {"text": "Ready", "color": "gray"},
+    "running": {"text": "Running…", "color": "gold"},
+    "pass": {"text": "PASS", "color": "green"},
+    "fail": {"text": "FAIL", "color": "red"}
+  },
+  "progress": [
+    {"match": "^\\[INFO\\] \\[STEP (\\d/\\d)\\] (.*)", "text": "{1}: {2}", "color": "gold"},
+    {"match": "^\\[INFO\\] ST-Link", "text": "Detecting ST-Links…", "color": "gold"},
+    {"match": "^(\\[INFO\\] )?\\[WLE\\] ", "text": "WLE: programming…", "color": "dodger blue"},
+    {"match": "^(\\[INFO\\] )?\\[WBA\\] ", "text": "WBA: programming…", "color": "dodger blue"},
+    {"match": "^\\[ERROR\\] (.*)", "text": "Error:\n{1}", "color": "orange"}
+  ]
+}
