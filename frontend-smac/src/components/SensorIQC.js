@@ -514,7 +514,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       const deadline = Date.now() + 20000;
       let result = null;
       while (Date.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 200));
         const response = await testRecordsAPI.getSensorUartDetection(requestId);
         if (response.data.status !== 'pending') {
           result = response.data;

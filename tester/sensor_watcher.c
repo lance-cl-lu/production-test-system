@@ -39,7 +39,7 @@
 #define SHARED_FILE "../shared/sensor_test.txt"
 #define API_EVENTS_URL "http://localhost:8000/api/sensor/events"
 #define API_SERIAL_FOUND_URL "http://localhost:8000/api/sensor/serial-found"
-#define CHECK_INTERVAL 1
+#define CHECK_INTERVAL_MS 100
 #define WATCHER_LOCK_FILE "/tmp/production-test-system-sensor-watcher.lock"
 
 // 設為 1.0 讓模擬全數通過，先確認管線；之後可調低來測 FAIL 顯示
@@ -1028,7 +1028,7 @@ int main(int argc, char **argv) {
     platform_file_stamp(command_file, &st_old);
 
     while (keep_running) {
-        platform_sleep_ms(CHECK_INTERVAL * 1000U);
+        platform_sleep_ms(CHECK_INTERVAL_MS);
 
         if (!keep_running) {
             break;
