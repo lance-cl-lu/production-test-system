@@ -492,7 +492,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     }, 500);
   };
 
-  const handleDetectUart = async () => {
+  const handleDetectUart = async ({ restartWatcher = !watcherRunning } = {}) => {
     if (testing || readingSerial || runningStage !== null || detectingUart) return;
     const appendLog = (entry) => {
       const timestamp = new Date().toLocaleTimeString();
@@ -509,6 +509,11 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
     resetTest();
     appendLog(t.sensorIQC.uartDetectionStarted);
     try {
+      if (restartWatcher) {
+        await testRecordsAPI.controlSensorWatcher('restart');
+        setWatcherRunning(true);
+        appendLog(t.sensorIQC.sensorWatcherRestartSuccess);
+      }
       const trigger = await testRecordsAPI.detectSensorUart();
       const requestId = trigger.data.request_id;
       const deadline = Date.now() + 20000;
@@ -559,7 +564,7 @@ const SensorIQC = ({ language = 'zh-TW' }) => {
       message.success(action === 'restart'
         ? t.sensorIQC.sensorWatcherRestartSuccess
         : t.sensorIQC.sensorWatcherStartSuccess);
-      await handleDetectUart();
+      await handleDetectUart({ restartWatcher: false });
     } catch (error) {
       console.error(`Failed to ${action} sensor_watcher:`, error);
       message.error(error.response?.data?.detail || t.sensorIQC.sensorWatcherControlFailed);

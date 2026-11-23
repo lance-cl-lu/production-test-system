@@ -112,16 +112,25 @@ def _find_watcher_pids(executable):
     lsof = shutil.which("lsof")
     if not lsof:
         return []
+    candidates = set()
+    # Include watchers that are alive but failed to bind the status port.
+    pgrep = shutil.which("pgrep")
+    if pgrep:
+        processes = subprocess.run(
+            [pgrep, "-x", executable.name],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=5, check=False,
+        )
+        candidates.update(int(line) for line in processes.stdout.splitlines() if line.strip().isdigit())
+
     listeners = subprocess.run(
         [lsof, "-nP", "-t", "-iTCP:8766", "-sTCP:LISTEN"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         universal_newlines=True, timeout=5, check=False,
     )
+    candidates.update(int(line) for line in listeners.stdout.splitlines() if line.strip().isdigit())
     pids = []
-    for line in listeners.stdout.splitlines():
-        if not line.strip().isdigit():
-            continue
-        pid = int(line)
+    for pid in candidates:
         opened = subprocess.run(
             [lsof, "-nP", "-a", "-p", str(pid), "-d", "txt", "-Fn"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -188,12 +197,15 @@ def _stop_watcher():
 def _start_watcher(restart=False):
     global _watcher_process
     with _watcher_lock:
-        if _watcher_running() and not restart:
+        executable = _watcher_executable()
+        is_running = _watcher_running()
+        if is_running and not restart:
             return {"status": "running", "action": "start"}
-        if _watcher_running():
+        tracked_process_alive = _watcher_process is not None and _watcher_process.poll() is None
+        existing_pids = _find_watcher_pids(executable) if not is_running else []
+        if is_running or tracked_process_alive or existing_pids:
             _stop_watcher()
 
-        executable = _watcher_executable()
         if not executable.is_file():
             raise FileNotFoundError(
                 f"sensor_watcher executable not found: {executable}; build it first or set SENSOR_WATCHER_EXECUTABLE"

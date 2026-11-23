@@ -7,6 +7,7 @@
 
 #include "uart_hvf.h"
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,6 +70,21 @@ static void write_all(platform_uart_t uart, const char *text) {
         if (w < 0) return;
         if (w == 0) { platform_sleep_ms(10); continue; }
         sent += (size_t)w;
+    }
+}
+
+/* Some WLE half-duplex console paths corrupt a burst write. Pace the version
+ * command like interactive console input so the receiver can follow each byte. */
+static void write_paced(platform_uart_t uart, const char *text, unsigned int gap_ms) {
+    size_t len = strlen(text);
+    for (size_t i = 0; i < len; ++i) {
+        int written;
+        do {
+            written = platform_uart_write(uart, text + i, 1);
+            if (written == 0) platform_sleep_ms(10);
+        } while (written == 0);
+        if (written < 0) return;
+        if (i + 1U < len) platform_sleep_ms(gap_ms);
     }
 }
 
@@ -143,6 +159,49 @@ static int read_until_marker(platform_uart_t uart, char *buf, size_t buf_size,
     return (int)offset;
 }
 
+/* hvf_version can echo the command before the firmware response. Ignore all
+ * bytes until the response's opening brace, then collect through its marker. */
+static int read_hvf_response(platform_uart_t uart, char *buf, size_t buf_size,
+                             int timeout_ms, const char *marker) {
+    unsigned char chunk[256];
+    size_t offset = 0;
+    int elapsed_ms = 0;
+    int started = 0;
+    const int slice_ms = 25;
+
+    if (buf == NULL || buf_size == 0U || marker == NULL) return -1;
+    buf[0] = '\0';
+    while (elapsed_ms < timeout_ms && offset < buf_size - 1U) {
+        int wait_ms = timeout_ms - elapsed_ms;
+        if (wait_ms > slice_ms) wait_ms = slice_ms;
+        if (wait_for_data(uart, wait_ms) > 0) {
+            int received = platform_uart_read(uart, chunk, sizeof(chunk));
+            if (received < 0) return -1;
+            if (received > 0 && debug_enabled) {
+                fprintf(stderr, "[UART][hvf_version] RX %d bytes:", received);
+                for (int i = 0; i < received; ++i) fprintf(stderr, " %02X", chunk[i]);
+                fprintf(stderr, " | ");
+                for (int i = 0; i < received; ++i) {
+                    unsigned char c = chunk[i];
+                    fputc((c >= 32 && c <= 126) ? c : '.', stderr);
+                }
+                fputc('\n', stderr);
+            }
+            for (int i = 0; i < received; ++i) {
+                if (!started) {
+                    if (chunk[i] != '{') continue;
+                    started = 1;
+                }
+                if (offset < buf_size - 1U) buf[offset++] = (char)chunk[i];
+                buf[offset] = '\0';
+                if (strstr(buf, marker) != NULL) return (int)offset;
+            }
+        }
+        elapsed_ms += wait_ms;
+    }
+    return (int)offset;
+}
+
 static int buffer_contains_error(const char *buffer) {
     return (strstr(buffer, "Error:") != NULL) || (strstr(buffer, "ERROR:") != NULL) ||
            (strstr(buffer, "Invalid") != NULL) || (strstr(buffer, "Unknown command") != NULL);
@@ -151,8 +210,9 @@ static int buffer_contains_error(const char *buffer) {
 static int send_command_collect(platform_uart_t uart, const char *command, char *response, size_t response_size,
                                 int timeout_ms) {
     memset(response, 0, response_size);
-    write_all(uart, command);
-    write_all(uart, "\r\n");
+    char command_line[256];
+    snprintf(command_line, sizeof(command_line), "%s\r\n", command);
+    write_paced(uart, command_line, 10);
     platform_sleep_ms(WAIT_MS);
     read_to_buffer(uart, response, response_size, timeout_ms);
     debug_print("[debug] command '%s' response: %s\n", command, response);
@@ -214,6 +274,47 @@ static void strip_control_chars(char *text) {
         text[write_index++] = (char)c;
     }
     text[write_index] = '\0';
+}
+
+static int extract_hvf_payload(const char *response, char *out, size_t out_len);
+
+static int is_valid_stm32_uid(const char *uid) {
+    if (uid == NULL || strlen(uid) != 24U) return 0;
+    for (size_t i = 0; i < 24U; ++i) {
+        if (!isxdigit((unsigned char)uid[i])) return 0;
+    }
+    return 1;
+}
+
+static int extract_stm32_uid(const char *response, char *out, size_t out_len) {
+    static const char label[] = "Unique device ID:";
+    const char *start = strstr(response, label);
+    char candidate[128];
+
+    if (out == NULL || out_len < 25U) return -1;
+    out[0] = '\0';
+    if (start != NULL) {
+        start += sizeof(label) - 1U;
+        while (*start == ' ' || *start == '\t') ++start;
+        if (start[0] == '0' && (start[1] == 'x' || start[1] == 'X')) start += 2;
+        size_t i = 0;
+        while (isxdigit((unsigned char)start[i]) && i < sizeof(candidate) - 1U) {
+            candidate[i] = start[i];
+            ++i;
+        }
+        candidate[i] = '\0';
+        if (is_valid_stm32_uid(candidate)) {
+            memcpy(out, candidate, 25U);
+            return 0;
+        }
+    }
+
+    if (extract_hvf_payload(response, candidate, sizeof(candidate)) == 0 &&
+        is_valid_stm32_uid(candidate)) {
+        memcpy(out, candidate, 25U);
+        return 0;
+    }
+    return -1;
 }
 
 // 韌體以 {[payload]} 包裝回應內容
@@ -290,6 +391,7 @@ int uart_hvf_detect_mcu(platform_uart_t uart, char *mcu, size_t mcu_len) {
     char response[1024];
     char payload[256];
     char *separator;
+    int attempt;
 
     if (mcu == NULL || mcu_len == 0U || uart == PLATFORM_UART_INVALID) {
         return -1;
@@ -304,12 +406,29 @@ int uart_hvf_detect_mcu(platform_uart_t uart, char *mcu, size_t mcu_len) {
     memset(after_enter, 0, sizeof(after_enter));
     (void)read_to_buffer(uart, after_enter, sizeof(after_enter), 200);
 
-    if (send_command_collect(uart, "hvf_version", response, sizeof(response), 1500) != 0 ||
-        strstr(response, "<[OK]>") == NULL ||
-        extract_hvf_payload(response, payload, sizeof(payload)) != 0) {
-        debug_print("[debug] hvf_version did not provide a valid MCU response: %s\n", response);
-        return -1;
+    for (attempt = 0; attempt < 3; ++attempt) {
+        if (attempt > 0) {
+            debug_print("[debug] retrying hvf_version (%d/3) after UART receive error\n", attempt + 1);
+            (void)drain_until_idle(uart, 200);
+            write_all(uart, "\r");
+            platform_sleep_ms(250);
+            (void)drain_until_idle(uart, 100);
+        }
+
+        memset(response, 0, sizeof(response));
+        write_paced(uart, "hvf_version\r\n", 10);
+        platform_sleep_ms(WAIT_MS);
+        (void)read_hvf_response(uart, response, sizeof(response), 1500, "<[OK]>");
+        debug_print("[debug] command 'hvf_version' response: %s\n", response);
+        if (!buffer_contains_error(response) &&
+            strstr(response, "<[OK]>") != NULL &&
+            extract_hvf_payload(response, payload, sizeof(payload)) == 0) {
+            break;
+        }
+        debug_print("[debug] hvf_version did not provide a valid MCU response (attempt %d/3): %s\n",
+                    attempt + 1, response);
     }
+    if (attempt == 3) return -1;
 
     separator = strchr(payload, '-');
     if (separator == NULL || separator[1] == '\0') {
@@ -344,18 +463,26 @@ static int read_stm32_id_direct(platform_uart_t uart, char *out, size_t out_len)
     // Wait for the console to finish emitting its prompt before sending the next command.
     platform_sleep_ms(WAIT_MS);
 
-    write_all(uart, "stm32_id_info\r\n");
-    platform_sleep_ms(WAIT_MS);
-
-    memset(response, 0, sizeof(response));
-    read_until_marker(uart, response, sizeof(response), 1500, "<[OK]>");
-    debug_print("[debug] raw response: %s\n", response);
-
-    if (extract_hvf_payload(response, out, out_len) != 0) {
-        return -1;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        if (attempt > 0) {
+            debug_print("[debug] retrying stm32_id_info (%d/3)\n", attempt + 1);
+            (void)drain_until_idle(uart, 200);
+            write_all(uart, "\r");
+            platform_sleep_ms(WAIT_MS);
+            (void)read_until_marker(uart, after_enter, sizeof(after_enter), 300, "hvf>");
+        }
+        memset(response, 0, sizeof(response));
+        write_paced(uart, "stm32_id_info\r\n", 10);
+        platform_sleep_ms(WAIT_MS);
+        (void)read_until_marker(uart, response, sizeof(response), 2000, "<[OK]>");
+        debug_print("[debug] raw response: %s\n", response);
+        if (strstr(response, "<[OK]>") != NULL &&
+            extract_stm32_uid(response, out, out_len) == 0) {
+            return 0;
+        }
+        debug_print("[debug] stm32_id_info response had no valid 24-digit hex UID\n");
     }
-
-    return (strstr(response, "<[OK]>") != NULL) ? 0 : -1;
+    return -1;
 }
 
 static int read_stm32_id_passthrough(platform_uart_t uart, char *out, size_t out_len) {
@@ -398,7 +525,7 @@ static int read_stm32_id_passthrough(platform_uart_t uart, char *out, size_t out
         (void)send_command_collect(uart, "stm32_id_info", id_response, sizeof(id_response), 1500);
     }
 
-    int extracted = extract_hvf_payload(id_response, out, out_len);
+    int extracted = extract_stm32_uid(id_response, out, out_len);
 
     // 無論讀取成敗都要退出 passthrough，否則裝置會卡在該模式
     // 先用 Enter 重新同步 prompt 並清掉 IPC/UART 殘留，避免亂碼黏在 exit 指令前。

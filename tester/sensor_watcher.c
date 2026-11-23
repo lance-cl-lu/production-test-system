@@ -159,6 +159,17 @@ static void *uart_status_server_thread(void *unused)
         return UART_STATUS_THREAD_ERROR;
     }
 
+    {
+        int socket_option = 1;
+#ifdef _WIN32
+        (void)setsockopt(server_socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                         (const char *)&socket_option, sizeof(socket_option));
+#else
+        (void)setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR,
+                         &socket_option, sizeof(socket_option));
+#endif
+    }
+
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
     address.sin_port = htons(UART_STATUS_PORT);
@@ -192,13 +203,19 @@ static void *uart_status_server_thread(void *unused)
         char origin[160] = "";
         const char *cors_origin = "";
         int received;
+        size_t request_length = 0;
         int response_length;
 
         if (client_socket == UART_STATUS_INVALID_SOCKET) continue;
-        received = (int)recv(client_socket, request, (int)sizeof(request) - 1, 0);
-        if (received > 0) {
+        do {
+            received = (int)recv(client_socket, request + request_length,
+                                 (int)(sizeof(request) - request_length - 1U), 0);
+            if (received <= 0) break;
+            request_length += (size_t)received;
+            request[request_length] = '\0';
+        } while (request_length < sizeof(request) - 1U && strstr(request, "\r\n\r\n") == NULL);
+        if (request_length > 0U) {
             char *origin_header;
-            request[received] = '\0';
             origin_header = strstr(request, "Origin: ");
             if (origin_header != NULL) {
                 origin_header += strlen("Origin: ");
@@ -998,6 +1015,9 @@ int main(int argc, char **argv) {
         }
         if (uart_fd != PLATFORM_UART_INVALID &&
             (!dual_uart_mode || uart_fd2 != PLATFORM_UART_INVALID)) {
+            /* Give half-duplex adapters and both MCU consoles time to settle
+             * after opening the UARTs; startup timing must not depend on logs. */
+            platform_sleep_ms(500);
             detect_console_layout(&port, &port2);
             snprintf(active_port_wle, sizeof(active_port_wle), "%s", port);
             snprintf(active_port_wba, sizeof(active_port_wba), "%s",

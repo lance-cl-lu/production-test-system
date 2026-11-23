@@ -48,7 +48,9 @@ export const testRecordsAPI = {
     return { data: await response.json() };
   },
   controlSensorWatcher: (action) => axios.post(
-    `${process.env.REACT_APP_FLASH_AGENT_URL || 'http://127.0.0.1:8765'}/api/sensor/watcher/${action}`
+    `${process.env.REACT_APP_FLASH_AGENT_URL || 'http://127.0.0.1:8765'}/api/sensor/watcher/${action}`,
+    {},
+    { timeout: 20000 }
   ),
   getSensorUartDetection: (requestId) => api.get(`/api/sensor/detect-uart/${requestId}`),
   getLatestSensorSerial: () => api.get('/api/sensor/serial-found/latest'),
